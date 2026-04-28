@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OutScouted — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080808;
+    --surface: #111111;
+    --surface2: #181818;
+    --surface3: #1f1f1f;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.14);
+    --accent: #b8963e;
+    --accent2: #d4aa52;
+    --accent-dim: rgba(184,150,62,0.12);
+    --text: #e8e8e8;
+    --muted: #5a5a5a;
+    --muted2: #8a8a8a;
+    --danger: #e05252;
+    --danger-dim: rgba(224,82,82,0.1);
+    --success: #52c47a;
+    --success-dim: rgba(82,196,122,0.1);
+    --warning: #e0a452;
+    --warning-dim: rgba(224,164,82,0.1);
+    --r: 6px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── LOADING ── */
+  #loadingScreen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 1.5rem; z-index: 9999;
+  }
+  #loadingScreen .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 2rem; font-weight: 900;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  .load-spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── HEADER ── */
+  header {
+    height: 58px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1.5rem;
+    background: rgba(8,8,8,0.97);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 1rem; }
+  .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.35rem; font-weight: 900;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); text-decoration: none;
+  }
+  .admin-badge {
+    font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    background: rgba(224,82,82,0.12);
+    border: 1px solid rgba(224,82,82,0.25);
+    color: var(--danger);
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+  }
+  .header-right { display: flex; align-items: center; gap: 0.75rem; }
+  .btn-app {
+    padding: 0.4rem 0.9rem;
+    background: var(--accent-dim);
+    border: 1px solid rgba(184,150,62,0.25);
+    border-radius: var(--r);
+    color: var(--accent);
+    font-size: 0.78rem; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    cursor: pointer; text-decoration: none;
+    transition: all 0.2s;
+  }
+  .btn-app:hover { background: rgba(184,150,62,0.2); }
+  .btn-signout {
+    padding: 0.4rem 0.9rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--muted2);
+    font-size: 0.78rem; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-signout:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* ── LAYOUT ── */
+  .layout { display: flex; flex: 1; min-height: 0; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 210px; flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 0;
+    display: flex; flex-direction: column;
+    gap: 0.25rem;
+  }
+  .sidebar-label {
+    font-size: 0.65rem; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); padding: 0 1.25rem;
+    margin-bottom: 0.25rem; margin-top: 0.5rem;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.6rem 1rem; margin: 0 0.5rem;
+    border-radius: var(--r);
+    cursor: pointer; color: var(--muted2);
+    font-size: 0.88rem; font-weight: 500;
+    transition: all 0.15s;
+    border: none; background: none;
+    width: calc(100% - 1rem); text-align: left;
+  }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(184,150,62,0.15); }
+  .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .nav-count {
+    margin-left: auto;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.62rem; font-weight: 700;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px; min-width: 18px; text-align: center;
+  }
+  .nav-count.gold { background: var(--accent); color: #0a0a0a; }
+
+  /* ── MAIN ── */
+  .main { flex: 1; overflow-y: auto; padding: 2rem 1.75rem; min-width: 0; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── PAGE HEADER ── */
+  .page-header { margin-bottom: 2rem; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+  .page-header-left {}
+  .page-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.8rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: #fff; line-height: 1;
+  }
+  .page-sub { font-size: 0.85rem; color: var(--muted2); margin-top: 0.35rem; }
+
+  /* ── STAT CARDS ── */
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.25rem 1.5rem;
+  }
+  .stat-card-num {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 2.2rem; font-weight: 800;
+    color: var(--accent); line-height: 1;
+  }
+  .stat-card-label { font-size: 0.75rem; color: var(--muted2); margin-top: 0.3rem; letter-spacing: 0.05em; text-transform: uppercase; }
+
+  /* ── TABLES ── */
+  .table-wrap {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .table-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; flex-wrap: wrap;
+  }
+  .table-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.9rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--text);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    padding: 0.6rem 1rem; text-align: left;
+    font-size: 0.68rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted2); border-bottom: 1px solid var(--border);
+    background: var(--surface2); white-space: nowrap;
+  }
+  td {
+    padding: 0.75rem 1rem;
+    font-size: 0.88rem; color: var(--text);
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  /* ── BADGES ── */
+  .badge {
+    font-size: 0.65rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.2rem 0.6rem; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.pro { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(184,150,62,0.25); }
+  .badge.basic { background: var(--surface3); color: var(--muted2); border: 1px solid var(--border2); }
+  .badge.pending { background: var(--warning-dim); color: var(--warning); border: 1px solid rgba(224,164,82,0.25); }
+  .badge.complete { background: var(--success-dim); color: var(--success); border: 1px solid rgba(82,196,122,0.25); }
+  .badge.opponent { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(184,150,62,0.2); }
+  .badge.self { background: var(--success-dim); color: var(--success); border: 1px solid rgba(82,196,122,0.2); }
+
+  /* ── BUTTONS ── */
+  .btn {
+    padding: 0.4rem 0.9rem;
+    border-radius: var(--r); font-size: 0.78rem;
+    font-weight: 600; letter-spacing: 0.05em;
+    cursor: pointer; transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    white-space: nowrap; font-family: 'Barlow', sans-serif;
+  }
+  .btn-primary { background: var(--accent); border: none; color: #0a0a0a; font-weight: 700; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost { background: transparent; border: 1px solid var(--border2); color: var(--muted2); }
+  .btn-ghost:hover { border-color: var(--text); color: var(--text); }
+  .btn-danger { background: transparent; border: 1px solid rgba(224,82,82,0.3); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger-dim); }
+  .btn-success { background: transparent; border: 1px solid rgba(82,196,122,0.3); color: var(--success); }
+  .btn-success:hover { background: var(--success-dim); }
+  .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.73rem; }
+
+  /* ── SEND REPORT FORM ── */
+  .send-form-wrap { max-width: 640px; }
+  .form-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.75rem; margin-bottom: 1.25rem;
+  }
+  .form-card-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.88rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--accent); margin-bottom: 1.25rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .form-card-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .field { margin-bottom: 1rem; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: block; font-size: 0.72rem; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted2); margin-bottom: 0.45rem;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 0.72rem 0.9rem;
+    background: var(--bg); border: 1px solid var(--border2);
+    border-radius: var(--r); color: var(--text);
+    font-size: 0.92rem; font-family: 'Barlow', sans-serif;
+    outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input::placeholder, .field textarea::placeholder { color: var(--muted); }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(184,150,62,0.08);
+  }
+  .field select { appearance: none; cursor: pointer; }
+  .field textarea { resize: vertical; min-height: 280px; font-family: 'monospace', monospace; font-size: 0.78rem; line-height: 1.5; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .type-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .type-btn {
+    padding: 0.6rem; border: 1px solid var(--border2);
+    border-radius: var(--r); background: transparent;
+    color: var(--muted2); font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; text-align: center;
+    font-family: 'Barlow', sans-serif;
+  }
+  .type-btn.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+
+  /* ── ALERTS ── */
+  .alert {
+    padding: 0.75rem 1rem; border-radius: var(--r);
+    font-size: 0.85rem; margin-bottom: 1rem;
+    display: none; align-items: center; gap: 0.5rem; line-height: 1.5;
+  }
+  .alert.error { background: var(--danger-dim); border: 1px solid rgba(224,82,82,0.25); color: #f08080; }
+  .alert.success { background: var(--success-dim); border: 1px solid rgba(82,196,122,0.25); color: #52c47a; }
+  .alert.show { display: flex; }
+
+  /* ── SPINNER ── */
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-top-color: #0a0a0a;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+  }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    text-align: center; padding: 3.5rem 2rem;
+    border: 1px dashed var(--border2); border-radius: 8px;
+  }
+  .empty-icon {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--surface2); border: 1px solid var(--border2);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 1rem;
+  }
+  .empty-icon svg { width: 20px; height: 20px; stroke: var(--muted2); }
+  .empty-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.05rem; font-weight: 700;
+    text-transform: uppercase; color: var(--muted2); margin-bottom: 0.4rem;
+  }
+  .empty-sub { font-size: 0.83rem; color: var(--muted); line-height: 1.6; }
+
+  /* ── HTML PREVIEW TOGGLE ── */
+  .paste-hint {
+    font-size: 0.75rem; color: var(--muted2); margin-top: 0.4rem;
+    line-height: 1.55;
+  }
+  .char-count { font-size: 0.72rem; color: var(--muted); margin-top: 0.3rem; text-align: right; }
+  .char-count.has-content { color: var(--success); }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loadingScreen">
+  <div class="brand">OutScouted</div>
+  <div class="load-spinner"></div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="header-left">
+    <a href="outscouted_landing.html" class="brand">OutScouted</a>
+    <span class="admin-badge">Admin</span>
+  </div>
+  <div class="header-right">
+    <a href="newScoutAppV8.html" class="btn-app">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      Scouting App
+    </a>
+    <button class="btn-signout" onclick="handleSignOut()">Sign Out</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-label">Admin Panel</div>
+    <button class="nav-item active" onclick="switchView('overview')" id="nav-overview">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Overview
+    </button>
+    <button class="nav-item" onclick="switchView('send')" id="nav-send">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+      Send Report
+    </button>
+    <button class="nav-item" onclick="switchView('requests')" id="nav-requests">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      Requests
+      <span class="nav-count" id="requestsBadge" style="display:none;">0</span>
+    </button>
+    <button class="nav-item" onclick="switchView('users')" id="nav-users">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      Users
+      <span class="nav-count gold" id="usersBadge" style="display:none;">0</span>
+    </button>
+    <button class="nav-item" onclick="switchView('reports')" id="nav-reports">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Sent Reports
+    </button>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- OVERVIEW -->
+    <div class="view active" id="view-overview">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Overview</div>
+          <div class="page-sub">Welcome back. Here's what's going on.</div>
+        </div>
+        <button class="btn btn-primary" onclick="switchView('send')">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+          Send a Report
+        </button>
+      </div>
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-card-num" id="statUsers">—</div>
+          <div class="stat-card-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-num" id="statPro">—</div>
+          <div class="stat-card-label">Pro Members</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-num" id="statReports">—</div>
+          <div class="stat-card-label">Reports Sent</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-num" id="statPending">—</div>
+          <div class="stat-card-label">Pending Requests</div>
+        </div>
+      </div>
+
+      <!-- PENDING REQUESTS QUICK VIEW -->
+      <div class="table-wrap" id="overviewRequestsWrap">
+        <div class="table-header">
+          <div class="table-title">Pending Requests</div>
+          <button class="btn btn-ghost btn-sm" onclick="switchView('requests')">View All</button>
+        </div>
+        <div id="overviewRequests">
+          <div class="empty-state" style="border:none;">
+            <div class="empty-title">No Pending Requests</div>
+            <p class="empty-sub">Pro user report requests will appear here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEND REPORT -->
+    <div class="view" id="view-send">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Send Report</div>
+          <div class="page-sub">Push a scouting report directly to a user's dashboard.</div>
+        </div>
+      </div>
+      <div class="alert error" id="sendError"></div>
+      <div class="alert success" id="sendSuccess"></div>
+      <div class="send-form-wrap">
+
+        <div class="form-card">
+          <div class="form-card-title">Report Details</div>
+          <div class="field">
+            <label>Report Title</label>
+            <input type="text" id="sendTitle" placeholder="e.g. Westside HS — Opponent Scouting Report">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Opponent / Team Name</label>
+              <input type="text" id="sendOpponent" placeholder="e.g. Westside HS">
+            </div>
+            <div class="field">
+              <label>Game Date</label>
+              <input type="date" id="sendGameDate">
+            </div>
+          </div>
+          <div class="field">
+            <label>Report Type</label>
+            <div class="type-row">
+              <button class="type-btn active" onclick="setType(this,'opponent')">⚾ Opponent Scout</button>
+              <button class="type-btn" onclick="setType(this,'self')">🔍 Self Scout</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">Send To</div>
+          <div class="field">
+            <label>Select User</label>
+            <select id="sendUser">
+              <option value="">Loading users...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">Report HTML</div>
+          <div class="field">
+            <label>Paste Report HTML</label>
+            <textarea id="sendHtml" placeholder="Paste the full HTML from the scouting app here..." oninput="updateCharCount()"></textarea>
+            <div class="paste-hint">
+              In the scouting app, generate your report then open the downloaded HTML file, select all (Ctrl+A / Cmd+A), and paste it here.
+            </div>
+            <div class="char-count" id="charCount">No content pasted yet</div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="sendBtn" onclick="sendReport()" style="width:100%; padding:0.85rem; font-size:1rem; font-family:'Barlow Condensed',sans-serif; font-weight:800; letter-spacing:0.1em; text-transform:uppercase; justify-content:center;">
+          <div class="spinner" id="sendSpinner"></div>
+          <span id="sendBtnText">Send Report to User</span>
+        </button>
+        <p style="font-size:0.75rem; color:var(--muted); text-align:center; margin-top:0.75rem;">
+          The report will appear instantly in the user's dashboard.
+        </p>
+      </div>
+    </div>
+
+    <!-- REQUESTS -->
+    <div class="view" id="view-requests">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Report Requests</div>
+          <div class="page-sub">Requests submitted by Pro users.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadAll()">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div class="table-wrap">
+        <div id="requestsContainer">
+          <div class="empty-state" style="border:none;">
+            <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div>
+            <div class="empty-title">No Requests</div>
+            <p class="empty-sub">Pro user report requests will appear here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="view" id="view-users">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Users</div>
+          <div class="page-sub">Everyone who has logged into OutScouted.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadAll()">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div class="table-wrap">
+        <div id="usersContainer">
+          <div class="empty-state" style="border:none;">
+            <div class="empty-title">Loading Users...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SENT REPORTS -->
+    <div class="view" id="view-reports">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Sent Reports</div>
+          <div class="page-sub">All reports pushed to user dashboards.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadAll()">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div class="table-wrap">
+        <div id="reportsContainer">
+          <div class="empty-state" style="border:none;">
+            <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
+            <div class="empty-title">No Reports Sent Yet</div>
+            <p class="empty-sub">Reports you send will appear here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- FIREBASE -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore, collection, getDocs, addDoc, updateDoc,
+    doc, query, orderBy, where, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyASnfBe4aVyEjEB-GxYI4VDcfLihQrf-CE",
+    authDomain: "outscouted-app.firebaseapp.com",
+    projectId: "outscouted-app",
+    storageBucket: "outscouted-app.firebasestorage.app",
+    messagingSenderId: "205396718391",
+    appId: "1:205396718391:web:5f6799fe236cac6d78a0b2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) { window.location.href = "outscouted_login.html"; return; }
+    if (user.email !== ADMIN_EMAIL) { window.location.href = "outscouted_dashboard.html"; return; }
+
+    window._db = db;
+    window._auth = auth;
+    window._fns = { collection, getDocs, addDoc, updateDoc, doc, query, orderBy, where, serverTimestamp };
+
+    await loadAll();
+    document.getElementById("loadingScreen").style.display = "none";
+
+    setTimeout(() => {
+      const ls = document.getElementById("loadingScreen");
+      if (ls && ls.style.display !== "none") ls.style.display = "none";
+    }, 8000);
+  });
+
+  window._signOut = async () => { await signOut(auth); window.location.href = "outscouted_login.html"; };
+</script>
+
+<script>
+  let _reportType = 'opponent';
+  let _allUsers = [];
+  let _allRequests = [];
+  let _allReports = [];
+
+  // ── VIEW SWITCHING ──
+  function switchView(view) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('view-' + view).classList.add('active');
+    document.getElementById('nav-' + view).classList.add('active');
+  }
+
+  // ── SIGN OUT ──
+  function handleSignOut() { if (window._signOut) window._signOut(); }
+
+  // ── REPORT TYPE ──
+  function setType(el, type) {
+    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    _reportType = type;
+  }
+
+  // ── CHAR COUNT ──
+  function updateCharCount() {
+    const val = document.getElementById('sendHtml').value;
+    const el = document.getElementById('charCount');
+    if (!val) { el.textContent = 'No content pasted yet'; el.classList.remove('has-content'); return; }
+    el.textContent = val.length.toLocaleString() + ' characters — looks good';
+    el.classList.add('has-content');
+  }
+
+  // ── LOAD ALL DATA ──
+  async function loadAll() {
+    if (!window._db) return;
+    const { collection, getDocs, query, orderBy } = window._fns;
+    const db = window._db;
+
+    try {
+      // Load users
+      const usersSnap = await getDocs(collection(db, 'users'));
+      _allUsers = [];
+      usersSnap.forEach(d => _allUsers.push({ id: d.id, ...d.data() }));
+
+      // Load requests
+      const reqSnap = await getDocs(query(collection(db, 'requests'), orderBy('createdAt', 'desc')));
+      _allRequests = [];
+      reqSnap.forEach(d => _allRequests.push({ id: d.id, ...d.data() }));
+
+      // Load reports
+      const repSnap = await getDocs(query(collection(db, 'reports'), orderBy('createdAt', 'desc')));
+      _allReports = [];
+      repSnap.forEach(d => _allReports.push({ id: d.id, ...d.data() }));
+
+      renderAll();
+    } catch (e) {
+      console.error('Error loading data:', e);
+    }
+  }
+
+  function renderAll() {
+    renderStats();
+    renderUsers();
+    renderRequests();
+    renderReports();
+    populateUserDropdown();
+  }
+
+  // ── STATS ──
+  function renderStats() {
+    const pending = _allRequests.filter(r => r.status === 'pending').length;
+    const pro = _allUsers.filter(u => u.role === 'pro').length;
+    document.getElementById('statUsers').textContent = _allUsers.length;
+    document.getElementById('statPro').textContent = pro;
+    document.getElementById('statReports').textContent = _allReports.length;
+    document.getElementById('statPending').textContent = pending;
+
+    if (pending > 0) {
+      document.getElementById('requestsBadge').style.display = 'inline';
+      document.getElementById('requestsBadge').textContent = pending;
+    } else {
+      document.getElementById('requestsBadge').style.display = 'none';
+    }
+    if (_allUsers.length > 0) {
+      document.getElementById('usersBadge').style.display = 'inline';
+      document.getElementById('usersBadge').textContent = _allUsers.length;
+    }
+  }
+
+  // ── USER DROPDOWN ──
+  function populateUserDropdown() {
+    const sel = document.getElementById('sendUser');
+    if (!_allUsers.length) {
+      sel.innerHTML = '<option value="">No users found</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">Select a user...</option>' +
+      _allUsers.map(u => `<option value="${u.id}">${u.name || u.email} (${u.role || 'basic'})</option>`).join('');
+  }
+
+  // ── RENDER USERS ──
+  function renderUsers() {
+    const container = document.getElementById('usersContainer');
+    if (!_allUsers.length) {
+      container.innerHTML = `<div class="empty-state" style="border:none;">
+        <div class="empty-title">No Users Yet</div>
+        <p class="empty-sub">Users will appear here once they log in.</p>
+      </div>`;
+      return;
+    }
+
+    const userReportCounts = {};
+    _allReports.forEach(r => { userReportCounts[r.userId] = (userReportCounts[r.userId] || 0) + 1; });
+
+    container.innerHTML = `<table>
+      <thead><tr>
+        <th>Name</th><th>Email</th><th>Role</th><th>Reports</th><th>Joined</th><th>Actions</th>
+      </tr></thead>
+      <tbody>${_allUsers.map(u => `
+        <tr>
+          <td style="font-weight:600;">${u.name || '—'}</td>
+          <td style="color:var(--muted2);">${u.email}</td>
+          <td><span class="badge ${u.role === 'pro' ? 'pro' : 'basic'}">${u.role === 'pro' ? 'Pro' : 'Basic'}</span></td>
+          <td>${userReportCounts[u.id] || 0}</td>
+          <td style="color:var(--muted2);">${u.createdAt?.toDate ? u.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</td>
+          <td>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              ${u.role === 'pro'
+                ? `<button class="btn btn-danger btn-sm" onclick="changeRole('${u.id}','basic')">Set Basic</button>`
+                : `<button class="btn btn-success btn-sm" onclick="changeRole('${u.id}','pro')">Upgrade to Pro</button>`
+              }
+              <button class="btn btn-ghost btn-sm" onclick="sendToUser('${u.id}')">Send Report</button>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  // ── RENDER REQUESTS ──
+  function renderRequests() {
+    const container = document.getElementById('requestsContainer');
+    const overviewContainer = document.getElementById('overviewRequests');
+
+    if (!_allRequests.length) {
+      const empty = `<div class="empty-state" style="border:none;">
+        <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div>
+        <div class="empty-title">No Requests</div>
+        <p class="empty-sub">Pro user report requests will appear here.</p>
+      </div>`;
+      container.innerHTML = empty;
+      overviewContainer.innerHTML = `<div class="empty-state" style="border:none;padding:2rem;">
+        <div class="empty-title">No Pending Requests</div>
+        <p class="empty-sub">All caught up!</p>
+      </div>`;
+      return;
+    }
+
+    const tableHtml = `<table>
+      <thead><tr>
+        <th>User</th><th>Opponent</th><th>Game Date</th><th>Type</th><th>Report Type</th><th>Notes</th><th>Submitted</th><th>Status</th><th>Actions</th>
+      </tr></thead>
+      <tbody>${_allRequests.map(r => `
+        <tr>
+          <td style="font-weight:600;">${r.userName || r.userEmail}</td>
+          <td>${r.opponent || '—'}</td>
+          <td style="color:var(--muted2);">${r.gameDate || '—'}</td>
+          <td><span class="badge basic" style="text-transform:capitalize;">${r.gameType || '—'}</span></td>
+          <td style="color:var(--muted2);font-size:0.8rem;">${r.reportType || 'full'}</td>
+          <td style="color:var(--muted2);font-size:0.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.notes || ''}">${r.notes || '—'}</td>
+          <td style="color:var(--muted2);">${r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}</td>
+          <td><span class="badge ${r.status === 'complete' ? 'complete' : 'pending'}">${r.status === 'complete' ? 'Complete' : 'Pending'}</span></td>
+          <td>
+            <div style="display:flex;gap:0.5rem;">
+              ${r.status !== 'complete' ? `<button class="btn btn-success btn-sm" onclick="markComplete('${r.id}')">Mark Done</button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="sendToUserFromRequest('${r.userId}','${(r.opponent||'').replace(/'/g,"\\'")}','${r.gameDate||''}')">Send Report</button>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+    container.innerHTML = tableHtml;
+
+    // Overview only shows pending
+    const pending = _allRequests.filter(r => r.status === 'pending');
+    if (pending.length) {
+      overviewContainer.innerHTML = `<table>
+        <thead><tr><th>User</th><th>Opponent</th><th>Game Date</th><th>Submitted</th><th>Action</th></tr></thead>
+        <tbody>${pending.slice(0,5).map(r => `
+          <tr>
+            <td style="font-weight:600;">${r.userName || r.userEmail}</td>
+            <td>${r.opponent || '—'}</td>
+            <td style="color:var(--muted2);">${r.gameDate || '—'}</td>
+            <td style="color:var(--muted2);">${r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}</td>
+            <td><button class="btn btn-ghost btn-sm" onclick="sendToUserFromRequest('${r.userId}','${(r.opponent||'').replace(/'/g,"\\'")}','${r.gameDate||''}')">Send Report</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+    }
+  }
+
+  // ── RENDER SENT REPORTS ──
+  function renderReports() {
+    const container = document.getElementById('reportsContainer');
+    if (!_allReports.length) {
+      container.innerHTML = `<div class="empty-state" style="border:none;">
+        <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
+        <div class="empty-title">No Reports Sent Yet</div>
+        <p class="empty-sub">Reports you send will appear here.</p>
+      </div>`;
+      return;
+    }
+
+    const userMap = {};
+    _allUsers.forEach(u => userMap[u.id] = u);
+
+    container.innerHTML = `<table>
+      <thead><tr>
+        <th>Title</th><th>Sent To</th><th>Type</th><th>Opponent</th><th>Game Date</th><th>Sent</th><th>Viewed</th>
+      </tr></thead>
+      <tbody>${_allReports.map(r => {
+        const user = userMap[r.userId];
+        return `<tr>
+          <td style="font-weight:600;">${r.title || 'Scouting Report'}</td>
+          <td style="color:var(--muted2);">${user ? (user.name || user.email) : r.userId}</td>
+          <td><span class="badge ${r.type === 'self' ? 'self' : 'opponent'}">${r.type === 'self' ? 'Self Scout' : 'Opponent'}</span></td>
+          <td>${r.opponent || '—'}</td>
+          <td style="color:var(--muted2);">${r.gameDate || '—'}</td>
+          <td style="color:var(--muted2);">${r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</td>
+          <td>${r.viewed ? '<span style="color:var(--success);font-size:0.8rem;">✓ Viewed</span>' : '<span style="color:var(--muted);font-size:0.8rem;">Not yet</span>'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  // ── CHANGE USER ROLE ──
+  async function changeRole(userId, newRole) {
+    const { doc, updateDoc } = window._fns;
+    try {
+      await updateDoc(doc(window._db, 'users', userId), { role: newRole });
+      await loadAll();
+    } catch (e) {
+      alert('Error updating role: ' + e.message);
+    }
+  }
+
+  // ── MARK REQUEST COMPLETE ──
+  async function markComplete(requestId) {
+    const { doc, updateDoc } = window._fns;
+    try {
+      await updateDoc(doc(window._db, 'requests', requestId), { status: 'complete' });
+      await loadAll();
+    } catch (e) {
+      alert('Error updating request: ' + e.message);
+    }
+  }
+
+  // ── PRE-FILL SEND FORM FROM USER ──
+  function sendToUser(userId) {
+    const user = _allUsers.find(u => u.id === userId);
+    switchView('send');
+    setTimeout(() => {
+      const sel = document.getElementById('sendUser');
+      if (sel) sel.value = userId;
+    }, 50);
+  }
+
+  // ── PRE-FILL SEND FORM FROM REQUEST ──
+  function sendToUserFromRequest(userId, opponent, gameDate) {
+    switchView('send');
+    setTimeout(() => {
+      document.getElementById('sendUser').value = userId;
+      if (opponent) {
+        document.getElementById('sendOpponent').value = opponent;
+        document.getElementById('sendTitle').value = opponent + ' — Scouting Report';
+      }
+      if (gameDate) document.getElementById('sendGameDate').value = gameDate;
+    }, 50);
+  }
+
+  // ── SEND REPORT ──
+  async function sendReport() {
+    const title = document.getElementById('sendTitle').value.trim();
+    const opponent = document.getElementById('sendOpponent').value.trim();
+    const gameDate = document.getElementById('sendGameDate').value;
+    const userId = document.getElementById('sendUser').value;
+    const htmlContent = document.getElementById('sendHtml').value.trim();
+
+    document.getElementById('sendError').classList.remove('show');
+    document.getElementById('sendSuccess').classList.remove('show');
+
+    if (!title) { showSendAlert('error', 'Please enter a report title.'); return; }
+    if (!userId) { showSendAlert('error', 'Please select a user to send to.'); return; }
+    if (!htmlContent) { showSendAlert('error', 'Please paste the report HTML.'); return; }
+    if (htmlContent.length < 100) { showSendAlert('error', 'HTML content looks too short. Make sure you pasted the full report.'); return; }
+
+    setLoading(true);
+
+    try {
+      const { collection, addDoc, serverTimestamp } = window._fns;
+      await addDoc(collection(window._db, 'reports'), {
+        userId,
+        title,
+        opponent: opponent || '',
+        gameDate: gameDate || '',
+        type: _reportType,
+        htmlContent,
+        viewed: false,
+        createdAt: serverTimestamp()
+      });
+
+      showSendAlert('success', `Report sent successfully! It's now live in the user's dashboard.`);
+
+      // Clear form
+      document.getElementById('sendTitle').value = '';
+      document.getElementById('sendOpponent').value = '';
+      document.getElementById('sendGameDate').value = '';
+      document.getElementById('sendHtml').value = '';
+      document.getElementById('sendUser').value = '';
+      updateCharCount();
+
+      await loadAll();
+    } catch (e) {
+      showSendAlert('error', 'Error sending report: ' + e.message);
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function showSendAlert(type, msg) {
+    const el = document.getElementById(type === 'error' ? 'sendError' : 'sendSuccess');
+    el.textContent = msg;
+    el.classList.add('show');
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function setLoading(loading) {
+    const btn = document.getElementById('sendBtn');
+    const spinner = document.getElementById('sendSpinner');
+    const label = document.getElementById('sendBtnText');
+    btn.disabled = loading;
+    spinner.style.display = loading ? 'block' : 'none';
+    label.textContent = loading ? 'Sending...' : 'Send Report to User';
+  }
+</script>
+
+</body>
+</html>

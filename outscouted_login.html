@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OutScouted — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080808;
+    --surface: #111111;
+    --surface2: #181818;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.14);
+    --accent: #b8963e;
+    --accent2: #d4aa52;
+    --accent-dim: rgba(184,150,62,0.12);
+    --text: #e8e8e8;
+    --muted: #5a5a5a;
+    --muted2: #8a8a8a;
+    --danger: #e05252;
+    --danger-dim: rgba(224,82,82,0.1);
+    --success: #52c47a;
+    --r: 6px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── NAV ── */
+  nav {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2.5rem;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,8,8,0.95);
+    backdrop-filter: blur(16px);
+  }
+  .nav-brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .nav-back {
+    font-size: 0.8rem;
+    color: var(--muted2);
+    text-decoration: none;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: color 0.2s;
+  }
+  .nav-back:hover { color: var(--text); }
+
+  /* ── LAYOUT ── */
+  .page {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: calc(100vh - 60px);
+  }
+
+  /* ── LEFT PANEL ── */
+  .left-panel {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 3rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .left-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(184,150,62,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .left-content { position: relative; z-index: 1; max-width: 360px; }
+  .left-eyebrow {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .left-eyebrow::before {
+    content: '';
+    width: 24px; height: 1px;
+    background: var(--accent);
+  }
+  .left-headline {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 3rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    line-height: 0.95;
+    color: #fff;
+    margin-bottom: 1.5rem;
+  }
+  .left-headline em {
+    font-style: normal;
+    color: var(--accent);
+    display: block;
+  }
+  .left-tagline {
+    font-size: 0.95rem;
+    color: var(--muted2);
+    line-height: 1.7;
+    margin-bottom: 2.5rem;
+  }
+  .left-features {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .left-feature {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.88rem;
+    color: var(--muted2);
+  }
+  .left-feature-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* ── RIGHT PANEL ── */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 3rem;
+  }
+  .form-box {
+    width: 100%;
+    max-width: 380px;
+  }
+  .form-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    margin-bottom: 0.35rem;
+  }
+  .form-sub {
+    font-size: 0.88rem;
+    color: var(--muted2);
+    margin-bottom: 2rem;
+    line-height: 1.55;
+  }
+
+  /* ── ALERT ── */
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--r);
+    font-size: 0.85rem;
+    margin-bottom: 1.25rem;
+    display: none;
+    align-items: flex-start;
+    gap: 0.5rem;
+    line-height: 1.5;
+  }
+  .alert.error {
+    background: var(--danger-dim);
+    border: 1px solid rgba(224,82,82,0.25);
+    color: #f08080;
+  }
+  .alert.success {
+    background: rgba(82,196,122,0.08);
+    border: 1px solid rgba(82,196,122,0.25);
+    color: #52c47a;
+  }
+  .alert.show { display: flex; }
+
+  /* ── GOOGLE BUTTON ── */
+  .btn-google {
+    width: 100%;
+    padding: 0.82rem 1rem;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    transition: border-color 0.2s, background 0.2s;
+    text-decoration: none;
+  }
+  .btn-google:hover {
+    border-color: var(--border2);
+    background: #222;
+  }
+  .btn-google svg { flex-shrink: 0; }
+
+  /* ── DIVIDER ── */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 1.25rem 0;
+    color: var(--muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── FORM FIELDS ── */
+  .field { margin-bottom: 1.1rem; }
+  .field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    margin-bottom: 0.5rem;
+  }
+  .field input {
+    width: 100%;
+    padding: 0.78rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    color: var(--text);
+    font-size: 0.95rem;
+    font-family: 'Barlow', sans-serif;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input::placeholder { color: var(--muted); }
+  .field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(184,150,62,0.08);
+  }
+
+  /* ── FORGOT ── */
+  .forgot-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: -0.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .forgot-link {
+    font-size: 0.78rem;
+    color: var(--muted2);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .forgot-link:hover { color: var(--accent); }
+
+  /* ── SUBMIT ── */
+  .btn-submit {
+    width: 100%;
+    padding: 0.85rem;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--r);
+    color: #0a0a0a;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .btn-submit:hover { background: var(--accent2); }
+  .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── SPINNER ── */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-top-color: #0a0a0a;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── RESET FORM ── */
+  #resetForm { display: none; }
+
+  /* ── ACCESS NOTE ── */
+  .access-note {
+    margin-top: 2rem;
+    padding: 1rem;
+    background: var(--accent-dim);
+    border: 1px solid rgba(184,150,62,0.2);
+    border-radius: var(--r);
+    font-size: 0.8rem;
+    color: var(--muted2);
+    line-height: 1.6;
+    text-align: center;
+  }
+  .access-note a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .access-note a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="outscouted_landing.html" class="nav-brand">OutScouted</a>
+  <a href="outscouted_landing.html" class="nav-back">
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+    </svg>
+    Back to site
+  </a>
+</nav>
+
+<div class="page">
+
+  <!-- LEFT PANEL -->
+  <div class="left-panel">
+    <div class="left-content">
+      <div class="left-eyebrow">Opponent Scouting</div>
+      <h2 class="left-headline">
+        Game Day
+        <em>Starts Here.</em>
+      </h2>
+      <p class="left-tagline">
+        Log in to access your OutScouted dashboard — your full library of opponent reports, pitcher charts, and lineup breakdowns.
+      </p>
+      <div class="left-features">
+        <div class="left-feature">
+          <span class="left-feature-dot"></span>
+          Full season opponent reports
+        </div>
+        <div class="left-feature">
+          <span class="left-feature-dot"></span>
+          Pitcher velocity & tendency charts
+        </div>
+        <div class="left-feature">
+          <span class="left-feature-dot"></span>
+          Hitter spray charts & exit velocity
+        </div>
+        <div class="left-feature">
+          <span class="left-feature-dot"></span>
+          Self-scouting & player development
+        </div>
+        <div class="left-feature">
+          <span class="left-feature-dot"></span>
+          Playoff & postseason coverage
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+    <div class="form-box">
+
+      <div class="form-title" id="formTitle">Welcome Back</div>
+      <p class="form-sub" id="formSub">Sign in to your OutScouted account.</p>
+
+      <div class="alert error" id="alertError"></div>
+      <div class="alert success" id="alertSuccess"></div>
+
+      <!-- MAIN LOGIN FORM -->
+      <div id="loginView">
+
+        <!-- GOOGLE -->
+        <button class="btn-google" onclick="handleGoogle()">
+          <svg width="18" height="18" viewBox="0 0 48 48">
+            <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.6 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 7.9 3l5.7-5.7C34.1 6.5 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"/>
+            <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.8 18.9 12 24 12c3.1 0 5.8 1.1 7.9 3l5.7-5.7C34.1 6.5 29.3 4 24 4 16.3 4 9.7 8.4 6.3 14.7z"/>
+            <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.3 26.8 36 24 36c-5.3 0-9.6-3.1-11.3-7.5l-6.5 5C9.5 39.4 16.2 44 24 44z"/>
+            <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.2 5.2C42 35.1 44 30 44 24c0-1.3-.1-2.7-.4-3.9z"/>
+          </svg>
+          Continue with Google
+        </button>
+
+        <div class="divider">or sign in with email</div>
+
+        <!-- EMAIL / PASSWORD -->
+        <form id="loginForm" onsubmit="handleLogin(event)">
+          <div class="field">
+            <label>Email Address</label>
+            <input type="email" id="loginEmail" placeholder="coach@school.edu" required>
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input type="password" id="loginPassword" placeholder="••••••••" required>
+          </div>
+          <div class="forgot-row">
+            <a href="#" class="forgot-link" onclick="showReset(event)">Forgot password?</a>
+          </div>
+          <button type="submit" class="btn-submit" id="loginBtn">
+            <span class="spinner" id="loginSpinner"></span>
+            <span id="loginBtnText">Sign In</span>
+          </button>
+        </form>
+
+        <div class="access-note">
+          Don't have an account? Access is by invitation only. 
+          <a href="outscouted_landing.html#demo">Request access →</a>
+        </div>
+
+      </div>
+
+      <!-- RESET PASSWORD VIEW -->
+      <div id="resetView" style="display:none;">
+        <p style="font-size:0.88rem; color:var(--muted2); margin-bottom:1.5rem; line-height:1.7;">
+          Enter your email address and we'll send you a link to reset your password.
+        </p>
+        <form id="resetForm" onsubmit="handleReset(event)" style="display:block;">
+          <div class="field">
+            <label>Email Address</label>
+            <input type="email" id="resetEmail" placeholder="coach@school.edu" required>
+          </div>
+          <button type="submit" class="btn-submit" id="resetBtn">
+            <span class="spinner" id="resetSpinner"></span>
+            <span id="resetBtnText">Send Reset Link</span>
+          </button>
+        </form>
+        <div style="margin-top:1.25rem; text-align:center;">
+          <a href="#" class="forgot-link" onclick="showLogin(event)">← Back to login</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- FIREBASE -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getAuth,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    GoogleAuthProvider,
+    sendPasswordResetEmail,
+    onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyASnfBe4aVyEjEB-GxYI4VDcfLihQrf-CE",
+    authDomain: "outscouted-app.firebaseapp.com",
+    projectId: "outscouted-app",
+    storageBucket: "outscouted-app.firebasestorage.app",
+    messagingSenderId: "205396718391",
+    appId: "1:205396718391:web:5f6799fe236cac6d78a0b2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const googleProvider = new GoogleAuthProvider();
+
+  // If already logged in, redirect to app
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      window.location.href = 'outscouted_dashboard.html';
+    }
+  });
+
+  // Expose to global scope
+  window._auth = auth;
+  window._googleProvider = googleProvider;
+  window._firebase = {
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    sendPasswordResetEmail,
+  };
+</script>
+
+<script>
+  // ── FRIENDLY ERRORS ──
+  function friendlyError(code) {
+    const map = {
+      'auth/user-not-found':        'No account found with that email address.',
+      'auth/wrong-password':        'Incorrect password. Please try again.',
+      'auth/invalid-credential':    'Invalid email or password. Please check and try again.',
+      'auth/invalid-email':         'Please enter a valid email address.',
+      'auth/too-many-requests':     'Too many attempts. Please wait a moment and try again.',
+      'auth/network-request-failed':'Network error. Please check your connection.',
+      'auth/popup-closed-by-user':  'Google sign-in was cancelled.',
+      'auth/popup-blocked':         'Popup was blocked. Please allow popups for this site.',
+      'auth/user-disabled':         'This account has been disabled. Please contact support.',
+    };
+    return map[code] || 'Something went wrong. Please try again.';
+  }
+
+  // ── ALERTS ──
+  function showError(msg) {
+    const el = document.getElementById('alertError');
+    el.textContent = msg;
+    el.classList.add('show');
+    document.getElementById('alertSuccess').classList.remove('show');
+  }
+  function showSuccess(msg) {
+    const el = document.getElementById('alertSuccess');
+    el.textContent = msg;
+    el.classList.add('show');
+    document.getElementById('alertError').classList.remove('show');
+  }
+  function clearAlerts() {
+    document.getElementById('alertError').classList.remove('show');
+    document.getElementById('alertSuccess').classList.remove('show');
+  }
+
+  // ── LOADING STATE ──
+  function setLoading(btnId, spinnerId, textId, loading, label) {
+    document.getElementById(btnId).disabled = loading;
+    document.getElementById(spinnerId).style.display = loading ? 'block' : 'none';
+    document.getElementById(textId).textContent = loading ? 'Please wait...' : label;
+  }
+
+  // ── VIEW SWITCHING ──
+  function showReset(e) {
+    e.preventDefault();
+    clearAlerts();
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('resetView').style.display = 'block';
+    document.getElementById('formTitle').textContent = 'Reset Password';
+    document.getElementById('formSub').textContent = "We'll send a reset link to your inbox.";
+  }
+
+  function showLogin(e) {
+    e.preventDefault();
+    clearAlerts();
+    document.getElementById('resetView').style.display = 'none';
+    document.getElementById('loginView').style.display = 'block';
+    document.getElementById('formTitle').textContent = 'Welcome Back';
+    document.getElementById('formSub').textContent = 'Sign in to your OutScouted account.';
+  }
+
+  // ── GOOGLE SIGN IN ──
+  async function handleGoogle() {
+    clearAlerts();
+    try {
+      const { signInWithPopup } = window._firebase;
+      const result = await signInWithPopup(window._auth, window._googleProvider);
+      showSuccess('Signed in as ' + result.user.email + '. Redirecting...');
+      setTimeout(() => {
+        window.location.href = 'outscouted_dashboard.html';
+      }, 1000);
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        showError(friendlyError(err.code));
+      }
+    }
+  }
+
+  // ── EMAIL / PASSWORD LOGIN ──
+  async function handleLogin(e) {
+    e.preventDefault();
+    clearAlerts();
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    setLoading('loginBtn', 'loginSpinner', 'loginBtnText', true, 'Sign In');
+
+    try {
+      const { signInWithEmailAndPassword } = window._firebase;
+      const result = await signInWithEmailAndPassword(window._auth, email, password);
+      showSuccess('Signed in successfully. Redirecting...');
+      setTimeout(() => {
+        window.location.href = 'outscouted_dashboard.html';
+      }, 1000);
+    } catch (err) {
+      showError(friendlyError(err.code));
+    } finally {
+      setLoading('loginBtn', 'loginSpinner', 'loginBtnText', false, 'Sign In');
+    }
+  }
+
+  // ── RESET PASSWORD ──
+  async function handleReset(e) {
+    e.preventDefault();
+    clearAlerts();
+    const email = document.getElementById('resetEmail').value.trim();
+
+    setLoading('resetBtn', 'resetSpinner', 'resetBtnText', true, 'Send Reset Link');
+
+    try {
+      const { sendPasswordResetEmail } = window._firebase;
+      await sendPasswordResetEmail(window._auth, email);
+      showSuccess('Reset link sent! Check your inbox and spam folder.');
+      document.getElementById('resetEmail').value = '';
+    } catch (err) {
+      showError(friendlyError(err.code));
+    } finally {
+      setLoading('resetBtn', 'resetSpinner', 'resetBtnText', false, 'Send Reset Link');
+    }
+  }
+</script>
+
+</body>
+</html>

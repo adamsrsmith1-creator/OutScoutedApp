@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OutScouted — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080808;
+    --surface: #111111;
+    --surface2: #181818;
+    --surface3: #1f1f1f;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.14);
+    --accent: #b8963e;
+    --accent2: #d4aa52;
+    --accent-dim: rgba(184,150,62,0.12);
+    --text: #e8e8e8;
+    --muted: #5a5a5a;
+    --muted2: #8a8a8a;
+    --danger: #e05252;
+    --danger-dim: rgba(224,82,82,0.1);
+    --success: #52c47a;
+    --success-dim: rgba(82,196,122,0.1);
+    --r: 6px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── LOADING SCREEN ── */
+  #loadingScreen {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    z-index: 9999;
+  }
+  #loadingScreen .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 2rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .load-spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── TOP NAV ── */
+  header {
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+    background: rgba(8,8,8,0.95);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    flex-shrink: 0;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .hamburger {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    cursor: pointer;
+    padding: 4px;
+    background: none;
+    border: none;
+  }
+  .hamburger span {
+    display: block;
+    width: 20px; height: 2px;
+    background: var(--muted2);
+    border-radius: 2px;
+    transition: all 0.2s;
+  }
+  .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.35rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .user-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem 0.3rem 0.3rem;
+  }
+  .user-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    border: 1px solid rgba(184,150,62,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .user-name {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .role-badge {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(184,150,62,0.3);
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .role-badge.basic {
+    border-color: var(--border2);
+    background: var(--surface2);
+    color: var(--muted2);
+  }
+  .btn-signout {
+    font-size: 0.78rem;
+    color: var(--muted2);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-signout:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* ── MAIN LAYOUT ── */
+  .layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar-section {
+    padding: 0 1rem;
+    margin-bottom: 0.25rem;
+  }
+  .sidebar-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: var(--r);
+    cursor: pointer;
+    color: var(--muted2);
+    font-size: 0.88rem;
+    font-weight: 500;
+    transition: all 0.15s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    text-decoration: none;
+  }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(184,150,62,0.15); }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .nav-badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: #0a0a0a;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    min-width: 18px;
+    text-align: center;
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2rem 1.5rem;
+    min-width: 0;
+  }
+
+  /* ── PAGE HEADER ── */
+  .page-header {
+    margin-bottom: 2rem;
+  }
+  .page-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    line-height: 1;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--muted2);
+    margin-top: 0.4rem;
+  }
+
+  /* ── VIEWS ── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    border: 1px dashed var(--border2);
+    border-radius: 8px;
+  }
+  .empty-icon {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1.25rem;
+  }
+  .empty-icon svg { width: 22px; height: 22px; stroke: var(--muted2); }
+  .empty-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--muted2);
+    margin-bottom: 0.5rem;
+  }
+  .empty-sub { font-size: 0.85rem; color: var(--muted); line-height: 1.65; }
+
+  /* ── REPORT CARDS ── */
+  .reports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+  .report-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .report-card:hover { border-color: var(--accent); background: var(--surface2); }
+  .report-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.85rem;
+  }
+  .report-type-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+  }
+  .report-type-badge.opponent {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid rgba(184,150,62,0.2);
+  }
+  .report-type-badge.self {
+    background: rgba(82,196,122,0.1);
+    color: #52c47a;
+    border: 1px solid rgba(82,196,122,0.2);
+  }
+  .report-date {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .report-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #fff;
+    margin-bottom: 0.3rem;
+  }
+  .report-meta {
+    font-size: 0.8rem;
+    color: var(--muted2);
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .report-meta span { display: flex; align-items: center; gap: 0.3rem; }
+  .report-card-footer {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .report-new-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--success);
+    background: var(--success-dim);
+    border: 1px solid rgba(82,196,122,0.2);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+  }
+  .report-open-btn {
+    font-size: 0.78rem;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .report-open-btn svg { width: 12px; height: 12px; }
+
+  /* ── REPORT VIEWER ── */
+  #reportViewer {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 500;
+    flex-direction: column;
+  }
+  #reportViewer.open { display: flex; }
+  .viewer-header {
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .viewer-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #fff;
+  }
+  .viewer-actions { display: flex; align-items: center; gap: 0.75rem; }
+  .btn-viewer {
+    padding: 0.4rem 0.9rem;
+    border-radius: var(--r);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: all 0.2s;
+  }
+  .btn-viewer.secondary {
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--muted2);
+  }
+  .btn-viewer.secondary:hover { border-color: var(--text); color: var(--text); }
+  .btn-viewer.primary {
+    background: var(--accent);
+    border: none;
+    color: #0a0a0a;
+    font-weight: 700;
+  }
+  .btn-viewer.primary:hover { background: var(--accent2); }
+  .viewer-body {
+    flex: 1;
+    overflow: auto;
+    background: #fff;
+    position: relative;
+  }
+  .viewer-iframe-wrap {
+    width: 100%;
+    height: 100%;
+  }
+  #reportIframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+  }
+  /* Mobile report viewer */
+  .viewer-mobile-hint {
+    display: none;
+    position: absolute;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    font-size: 0.78rem;
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* ── REQUEST FORM ── */
+  .request-form-wrap {
+    max-width: 580px;
+  }
+  .form-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .form-section-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .form-section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .field { margin-bottom: 1rem; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: block;
+    font-size: 0.73rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    margin-bottom: 0.45rem;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    color: var(--text);
+    font-size: 0.92rem;
+    font-family: 'Barlow', sans-serif;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .field input::placeholder, .field textarea::placeholder { color: var(--muted); }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(184,150,62,0.08);
+  }
+  .field select { appearance: none; cursor: pointer; }
+  .field textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .btn-submit-form {
+    width: 100%;
+    padding: 0.85rem;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--r);
+    color: #0a0a0a;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .btn-submit-form:hover { background: var(--accent2); }
+  .btn-submit-form:disabled { opacity: 0.5; cursor: not-allowed; }
+  .spinner {
+    width: 15px; height: 15px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-top-color: #0a0a0a;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+  }
+
+  /* ── PRO GATE ── */
+  .pro-gate {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3rem 2rem;
+    text-align: center;
+    max-width: 480px;
+  }
+  .pro-gate-icon {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    border: 1px solid rgba(184,150,62,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1.25rem;
+  }
+  .pro-gate-icon svg { width: 22px; height: 22px; stroke: var(--accent); }
+  .pro-gate-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #fff;
+    margin-bottom: 0.6rem;
+  }
+  .pro-gate-sub { font-size: 0.88rem; color: var(--muted2); line-height: 1.65; }
+
+  /* ── ACCOUNT VIEW ── */
+  .account-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.75rem;
+    max-width: 480px;
+    margin-bottom: 1rem;
+  }
+  .account-card-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted2);
+    margin-bottom: 1rem;
+  }
+  .account-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .account-row:last-child { border-bottom: none; }
+  .account-row-label { color: var(--muted2); }
+  .account-row-value { color: var(--text); font-weight: 500; }
+
+  /* ── ALERT ── */
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--r);
+    font-size: 0.85rem;
+    margin-bottom: 1.25rem;
+    display: none;
+    align-items: center;
+    gap: 0.5rem;
+    line-height: 1.5;
+  }
+  .alert.error { background: var(--danger-dim); border: 1px solid rgba(224,82,82,0.25); color: #f08080; }
+  .alert.success { background: var(--success-dim); border: 1px solid rgba(82,196,122,0.25); color: #52c47a; }
+  .alert.show { display: flex; }
+
+  /* ── REQUESTS LIST ── */
+  .requests-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .request-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .request-item-info { flex: 1; min-width: 0; }
+  .request-item-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #fff;
+    margin-bottom: 0.2rem;
+  }
+  .request-item-meta { font-size: 0.78rem; color: var(--muted2); }
+  .status-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .status-badge.pending { background: rgba(184,150,62,0.1); color: var(--accent); border: 1px solid rgba(184,150,62,0.2); }
+  .status-badge.complete { background: var(--success-dim); color: var(--success); border: 1px solid rgba(82,196,122,0.2); }
+
+
+  /* ── PREFERENCES ── */
+  .pref-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  .pref-section-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .pref-section-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text);
+  }
+  .pref-section-sub {
+    font-size: 0.78rem;
+    color: var(--muted2);
+    margin-left: auto;
+  }
+  .pref-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+  .pref-row:last-child { border-bottom: none; }
+  .pref-row-left {}
+  .pref-row-label {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 0.15rem;
+  }
+  .pref-row-desc {
+    font-size: 0.75rem;
+    color: var(--muted2);
+    line-height: 1.4;
+  }
+  .pref-row.locked { opacity: 0.45; pointer-events: none; }
+  .pref-row.locked .pref-row-label::after {
+    content: ' — Pro only';
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--surface3);
+    border: 1px solid var(--border2);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    left: 2px; top: 2px;
+    background: var(--muted2);
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: var(--accent-dim); border-color: rgba(184,150,62,0.4); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--accent); }
+
+  /* ── MOBILE ── */
+  @media (max-width: 768px) {
+    .sidebar {
+      position: fixed;
+      left: -220px;
+      top: 58px;
+      bottom: 0;
+      z-index: 200;
+      transition: left 0.25s ease;
+      overflow-y: auto;
+    }
+    .sidebar.open { left: 0; }
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      top: 58px;
+      background: rgba(0,0,0,0.6);
+      z-index: 199;
+    }
+    .sidebar-overlay.open { display: block; }
+    .hamburger { display: flex; }
+    .main { padding: 1.25rem 1rem; }
+    .user-name { display: none; }
+    .field-row { grid-template-columns: 1fr; }
+    .reports-grid { grid-template-columns: 1fr; }
+    .viewer-mobile-hint { display: block; }
+    .btn-signout span { display: none; }
+  }
+  @media (max-width: 480px) {
+    .role-badge { display: none; }
+    .viewer-title { font-size: 0.85rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+
+  /* ── PREFERENCES ── */
+  .prefs-grid { display: flex; flex-direction: column; gap: 1rem; max-width: 580px; }
+  .prefs-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .prefs-card-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .prefs-card-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.9rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text);
+  }
+  .prefs-card-badge {
+    font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.18rem 0.55rem; border-radius: 999px;
+  }
+  .prefs-card-badge.pro {
+    background: var(--accent-dim); color: var(--accent);
+    border: 1px solid rgba(184,150,62,0.25);
+  }
+  .prefs-card-badge.basic {
+    background: var(--surface3); color: var(--muted2);
+    border: 1px solid var(--border2);
+  }
+  .prefs-toggle-list { padding: 0.5rem 0; }
+  .prefs-toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+  .prefs-toggle-row:last-child { border-bottom: none; }
+  .prefs-toggle-info { flex: 1; }
+  .prefs-toggle-label {
+    font-size: 0.88rem; font-weight: 500; color: var(--text);
+  }
+  .prefs-toggle-sub {
+    font-size: 0.75rem; color: var(--muted2); margin-top: 0.2rem; line-height: 1.4;
+  }
+  .prefs-toggle-row.locked .prefs-toggle-label { color: var(--muted); }
+  .prefs-toggle-row.locked .prefs-toggle-sub { color: var(--muted); }
+  /* Toggle switch */
+  .toggle-switch {
+    position: relative; width: 42px; height: 24px;
+    flex-shrink: 0;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0; cursor: pointer;
+    background: var(--surface3); border: 1px solid var(--border2);
+    border-radius: 999px; transition: all 0.2s;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute;
+    width: 16px; height: 16px; border-radius: 50%;
+    left: 3px; top: 3px;
+    background: var(--muted2); transition: all 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-slider { background: var(--accent-dim); border-color: rgba(184,150,62,0.4); }
+  .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--accent); }
+  .toggle-switch input:disabled + .toggle-slider { opacity: 0.35; cursor: not-allowed; }
+  .prefs-save-row {
+    display: flex; align-items: center; gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  .btn-save-prefs {
+    padding: 0.7rem 1.75rem;
+    background: var(--accent); border: none;
+    border-radius: var(--r); color: #0a0a0a;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.95rem; font-weight: 800;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    cursor: pointer; transition: background 0.2s;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .btn-save-prefs:hover { background: var(--accent2); }
+  .btn-save-prefs:disabled { opacity: 0.5; cursor: not-allowed; }
+  .prefs-save-msg { font-size: 0.82rem; color: var(--success); display: none; }
+  .prefs-save-msg.show { display: block; }
+  .surface3 { background: var(--surface3); }
+</style>
+</head>
+<body>
+
+<!-- LOADING SCREEN -->
+<div id="loadingScreen">
+  <div class="brand">OutScouted</div>
+  <div class="load-spinner"></div>
+</div>
+
+<!-- REPORT VIEWER -->
+<div id="reportViewer">
+  <div class="viewer-header">
+    <div class="viewer-title" id="viewerTitle">Report</div>
+    <div class="viewer-actions">
+      <button class="btn-viewer primary" onclick="printReport()">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+        Print / Save PDF
+      </button>
+      <button class="btn-viewer secondary" onclick="closeViewer()">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        Close
+      </button>
+    </div>
+  </div>
+  <div class="viewer-body">
+    <div class="viewer-iframe-wrap">
+      <iframe id="reportIframe" title="Scouting Report"></iframe>
+    </div>
+    <div class="viewer-mobile-hint">Pinch to zoom</div>
+  </div>
+</div>
+
+<!-- SIDEBAR OVERLAY (mobile) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+<!-- TOP HEADER -->
+<header>
+  <div class="header-left">
+    <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+    <a href="outscouted_landing.html" class="brand">OutScouted</a>
+  </div>
+  <div class="header-right">
+    <div class="user-pill">
+      <div class="user-avatar" id="userAvatar">?</div>
+      <span class="user-name" id="userName">Loading...</span>
+      <span class="role-badge basic" id="roleBadge">Basic</span>
+    </div>
+    <button class="btn-signout" onclick="handleSignOut()">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+      <span>Sign Out</span>
+    </button>
+  </div>
+</header>
+
+<!-- MAIN LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">My Dashboard</div>
+      <button class="nav-item active" onclick="switchView('reports')" id="nav-reports">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        My Reports
+        <span class="nav-badge" id="reportsBadge" style="display:none;">0</span>
+      </button>
+      <button class="nav-item" onclick="switchView('request')" id="nav-request" style="display:none;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        Request a Report
+      </button>
+      <button class="nav-item" onclick="switchView('myrequests')" id="nav-myrequests" style="display:none;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        My Requests
+      </button>
+    </div>
+    <div class="sidebar-section" style="margin-top:auto; padding-top:1rem; border-top:1px solid var(--border);">
+      <button class="nav-item" onclick="switchView('preferences')" id="nav-preferences">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        Preferences
+      </button>
+      <button class="nav-item" onclick="switchView('prefs')" id="nav-prefs">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+        Preferences
+      </button>
+      <button class="nav-item" onclick="switchView('account')" id="nav-account">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        My Account
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+
+    <!-- REPORTS VIEW -->
+    <div class="view active" id="view-reports">
+      <div class="page-header">
+        <div class="page-title">My Reports</div>
+        <div class="page-sub">Scouting reports assigned to your account.</div>
+      </div>
+      <div class="alert error" id="reportsError"></div>
+      <div id="reportsContainer">
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          </div>
+          <div class="empty-title">No Reports Yet</div>
+          <p class="empty-sub">Your scouting reports will appear here once they've been prepared and sent to your account.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- REQUEST VIEW (Pro only) -->
+    <div class="view" id="view-request">
+      <div class="page-header">
+        <div class="page-title">Request a Report</div>
+        <div class="page-sub">Submit an opponent request. Reports are delivered within 24 hours.</div>
+      </div>
+      <div id="requestGate">
+        <!-- Pro gate shown for basic users -->
+        <div class="pro-gate">
+          <div class="pro-gate-icon">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          </div>
+          <div class="pro-gate-title">Pro Feature</div>
+          <p class="pro-gate-sub">On-demand report requests are available to Pro members. Contact OutScouted to upgrade your account.</p>
+        </div>
+      </div>
+      <div id="requestForm" style="display:none;">
+        <div class="alert error" id="requestError"></div>
+        <div class="alert success" id="requestSuccess"></div>
+        <div class="request-form-wrap">
+          <div class="form-section">
+            <div class="form-section-title">Opponent Info</div>
+            <div class="field">
+              <label>Opponent School / Team Name</label>
+              <input type="text" id="reqOpponent" placeholder="e.g. Westside High School" required>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>Game Date</label>
+                <input type="date" id="reqDate" required>
+              </div>
+              <div class="field">
+                <label>Game Type</label>
+                <select id="reqGameType">
+                  <option value="regular">Regular Season</option>
+                  <option value="tournament">Tournament</option>
+                  <option value="playoff">Playoff</option>
+                  <option value="showcase">Showcase</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Location / Venue (optional)</label>
+              <input type="text" id="reqLocation" placeholder="e.g. Westside HS Field">
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="form-section-title">Report Details</div>
+            <div class="field">
+              <label>Report Type</label>
+              <select id="reqType">
+                <option value="full">Full Lineup Report</option>
+                <option value="pitching">Pitching Only</option>
+                <option value="hitting">Hitting / Lineup Only</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Additional Notes (optional)</label>
+              <textarea id="reqNotes" placeholder="Any specific players, tendencies, or situations you want us to focus on..."></textarea>
+            </div>
+          </div>
+          <button class="btn-submit-form" id="submitRequestBtn" onclick="submitRequest()">
+            <div class="spinner" id="requestSpinner"></div>
+            <span id="submitRequestText">Submit Request</span>
+          </button>
+          <p style="font-size:0.78rem; color:var(--muted); margin-top:1rem; text-align:center;">
+            Reports are delivered within 24 hours to your My Reports tab.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MY REQUESTS VIEW -->
+    <div class="view" id="view-myrequests">
+      <div class="page-header">
+        <div class="page-title">My Requests</div>
+        <div class="page-sub">Track the status of your submitted report requests.</div>
+      </div>
+      <div id="myRequestsContainer">
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          </div>
+          <div class="empty-title">No Requests Yet</div>
+          <p class="empty-sub">Your submitted report requests and their status will appear here.</p>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- PREFERENCES VIEW -->
+    <div class="view" id="view-preferences">
+      <div class="page-header">
+        <div class="page-title">Preferences</div>
+        <div class="page-sub">Control what you see in your scouting reports.</div>
+      </div>
+
+      <div class="prefs-grid" id="prefsGrid">
+
+        <!-- BASIC SECTIONS — available to all -->
+        <div class="prefs-card">
+          <div class="prefs-card-header">
+            <div class="prefs-card-title">Report Sections</div>
+            <span class="prefs-card-badge basic">All Members</span>
+          </div>
+          <div class="prefs-toggle-list">
+            <div class="prefs-toggle-row">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Team Summary</div>
+                <div class="prefs-toggle-sub">Overall scouting summary and key takeaways</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-team-summary" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Pitching Summary</div>
+                <div class="prefs-toggle-sub">Pitcher stats, IP, strikeouts, walks, and ERA</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-pitching" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Hitting / Lineup</div>
+                <div class="prefs-toggle-sub">Full lineup with batting stats and OPS</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-hitting" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Spray Charts</div>
+                <div class="prefs-toggle-sub">Hit location charts per batter</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-spray" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Count Tendencies</div>
+                <div class="prefs-toggle-sub">Swing decisions and approach by count</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-counts" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- PRO SECTIONS -->
+        <div class="prefs-card" id="proPrefsCard">
+          <div class="prefs-card-header">
+            <div class="prefs-card-title">Advanced Analytics</div>
+            <span class="prefs-card-badge pro" id="proPrefsCardBadge">Pro</span>
+          </div>
+          <div class="prefs-toggle-list">
+            <div class="prefs-toggle-row" id="pref-row-velocity">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Velocity Data</div>
+                <div class="prefs-toggle-sub">Pitcher velocity profiles and batter vs velocity splits</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-velocity" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row" id="pref-row-pitchtype">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Pitch Type Breakdown</div>
+                <div class="prefs-toggle-sub">Pitch mix percentages and batter performance by pitch type</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-pitchtype" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row" id="pref-row-notes">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">How to Pitch To Notes</div>
+                <div class="prefs-toggle-sub">AI-generated approach notes for each batter</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-notes" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="prefs-toggle-row" id="pref-row-player-cards">
+              <div class="prefs-toggle-info">
+                <div class="prefs-toggle-label">Full Player Cards</div>
+                <div class="prefs-toggle-sub">Detailed per-player cards with all splits and charts</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="pref-player-cards" checked onchange="prefChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- SAVE -->
+        <div class="prefs-save-row">
+          <button class="btn-save-prefs" id="savePrefsBtn" onclick="savePreferences()">
+            <div class="spinner" id="prefsSpinner"></div>
+            <span id="prefsBtnText">Save Preferences</span>
+          </button>
+          <span class="prefs-save-msg" id="prefsSaveMsg">✓ Saved successfully</span>
+        </div>
+
+      </div>
+    </div>
+
+
+    <!-- PREFERENCES VIEW -->
+    <div class="view" id="view-prefs">
+      <div class="page-header">
+        <div class="page-title">Preferences</div>
+        <div class="page-sub">Choose what you see in your scouting reports. Changes save automatically.</div>
+      </div>
+      <div class="alert error" id="prefsError"></div>
+      <div class="alert success" id="prefsSuccess"></div>
+      <div id="prefsContainer" style="max-width:560px;">
+        <div style="text-align:center;padding:2rem;color:var(--muted2);">Loading preferences...</div>
+      </div>
+    </div>
+
+    <!-- ACCOUNT VIEW -->
+    <div class="view" id="view-account">
+      <div class="page-header">
+        <div class="page-title">My Account</div>
+        <div class="page-sub">Your OutScouted account details.</div>
+      </div>
+      <div class="account-card">
+        <div class="account-card-title">Profile</div>
+        <div class="account-row">
+          <span class="account-row-label">Name</span>
+          <span class="account-row-value" id="acctName">—</span>
+        </div>
+        <div class="account-row">
+          <span class="account-row-label">Email</span>
+          <span class="account-row-value" id="acctEmail">—</span>
+        </div>
+        <div class="account-row">
+          <span class="account-row-label">Account Type</span>
+          <span class="account-row-value" id="acctRole">—</span>
+        </div>
+        <div class="account-row">
+          <span class="account-row-label">Member Since</span>
+          <span class="account-row-value" id="acctSince">—</span>
+        </div>
+      </div>
+      <div class="account-card">
+        <div class="account-card-title">Support</div>
+        <div class="account-row">
+          <span class="account-row-label">Questions or issues?</span>
+          <span class="account-row-value"><a href="mailto:adamsrsmith1@gmail.com" style="color:var(--accent); text-decoration:none;">Contact OutScouted</a></span>
+        </div>
+        <div class="account-row">
+          <span class="account-row-label">Want to upgrade to Pro?</span>
+          <span class="account-row-value"><a href="mailto:adamsrsmith1@gmail.com" style="color:var(--accent); text-decoration:none;">Get in touch</a></span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- FIREBASE -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyASnfBe4aVyEjEB-GxYI4VDcfLihQrf-CE",
+    authDomain: "outscouted-app.firebaseapp.com",
+    projectId: "outscouted-app",
+    storageBucket: "outscouted-app.firebasestorage.app",
+    messagingSenderId: "205396718391",
+    appId: "1:205396718391:web:5f6799fe236cac6d78a0b2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      window.location.href = "outscouted_login.html";
+      return;
+    }
+
+    // Admin — redirect to admin panel
+    if (user.email === ADMIN_EMAIL) {
+      window.location.href = "outscouted_admin.html";
+      return;
+    }
+
+    // Get user doc from Firestore
+    let role = "basic";
+    try {
+      const userRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userRef);
+      if (userDoc.exists()) {
+        role = userDoc.data().role || "basic";
+      } else {
+        // Create user doc if first login
+        try {
+          await setDoc(userRef, {
+            email: user.email,
+            name: user.displayName || "",
+            role: "basic",
+            createdAt: serverTimestamp()
+          });
+        } catch (writeErr) {
+          console.error("Error creating user doc:", writeErr);
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching user doc:", e);
+      // Still continue — don't leave user on loading screen
+    }
+
+    window._user = user;
+    window._role = role;
+    window._db = db;
+    window._firestoreFns = { collection, query, where, orderBy, getDocs, addDoc, serverTimestamp, doc, setDoc, updateDoc, getDoc };
+
+    // Update UI
+    const name = user.displayName || user.email.split("@")[0];
+    const initials = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+    document.getElementById("userAvatar").textContent = initials;
+    document.getElementById("userName").textContent = name;
+    document.getElementById("acctName").textContent = user.displayName || "—";
+    document.getElementById("acctEmail").textContent = user.email;
+    document.getElementById("acctSince").textContent = user.metadata.creationTime
+      ? new Date(user.metadata.creationTime).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+      : "—";
+
+    if (role === "pro") {
+      document.getElementById("roleBadge").textContent = "Pro";
+      document.getElementById("roleBadge").classList.remove("basic");
+      document.getElementById("acctRole").textContent = "Pro Member";
+      document.getElementById("nav-request").style.display = "flex";
+      document.getElementById("nav-myrequests").style.display = "flex";
+      document.getElementById("requestGate").style.display = "none";
+      document.getElementById("requestForm").style.display = "block";
+      // Pro prefs unlocked
+      ["velocity","pitchtype","notes","player-cards"].forEach(key => {
+        const inp = document.getElementById("pref-" + key);
+        const row = document.getElementById("pref-row-" + key);
+        if (inp) inp.disabled = false;
+        if (row) row.classList.remove("locked");
+      });
+    } else {
+      document.getElementById("roleBadge").textContent = "Basic";
+      document.getElementById("acctRole").textContent = "Basic Member";
+      // Lock pro prefs for basic users
+      ["velocity","pitchtype","notes","player-cards"].forEach(key => {
+        const row = document.getElementById("pref-row-" + key);
+        const inp = document.getElementById("pref-" + key);
+        if (row) row.classList.add("locked");
+        if (inp) { inp.disabled = true; inp.checked = false; }
+      });
+      document.getElementById("proPrefsCardBadge").textContent = "Pro Only";
+    }
+
+    // Load saved preferences and apply to UI
+    const savedPrefs = userDoc.exists() ? (userDoc.data().preferences || {}) : {};
+    window._userPrefs = savedPrefs;
+    window._userRole = role;
+    loadPreferencesUI(savedPrefs, role);
+
+    // Load reports
+    await loadReports(user.uid);
+
+    // Load preferences
+    await loadPreferences(user.uid, role);
+
+    // Hide loading screen — always runs regardless of errors above
+    document.getElementById("loadingScreen").style.display = "none";
+  });
+
+  window._signOut = async () => {
+    await signOut(auth);
+    window.location.href = "outscouted_login.html";
+  };
+
+  async function loadReports(uid) {
+    try {
+      const { collection, query, where, orderBy, getDocs } = window._firestoreFns;
+      const q = query(
+        collection(db, "reports"),
+        where("userId", "==", uid),
+        orderBy("createdAt", "desc")
+      );
+      const snap = await getDocs(q);
+      const reports = [];
+      snap.forEach(d => reports.push({ id: d.id, ...d.data() }));
+      window._reports = reports;
+      renderReports(reports);
+    } catch (e) {
+      console.error("Error loading reports:", e);
+    }
+  }
+
+  window._loadReports = loadReports;
+
+  // ── DEFAULT PREFERENCES BY ROLE ──
+  function defaultPrefs(role) {
+    return {
+      show_team_summary: true,
+      show_lineup: true,
+      show_pitching: true,
+      show_fielding: true,
+      show_hitting: true,
+      show_spray_chart: true,
+      show_count_tendencies: true,
+      show_velo: role === 'pro',
+      show_pitch_type: role === 'pro',
+      show_pitch_notes: role === 'pro',
+      show_player_cards: role === 'pro',
+    };
+  }
+
+  async function loadPreferences(uid, role) {
+    try {
+      const { doc, getDoc } = window._firestoreFns;
+      const prefDoc = await getDoc(doc(window._db, 'preferences', uid));
+      let prefs = prefDoc.exists() ? prefDoc.data() : defaultPrefs(role);
+      // Merge with defaults so new prefs added later always have a value
+      prefs = { ...defaultPrefs(role), ...prefs };
+      window._prefs = prefs;
+      renderPreferences(uid, role, prefs);
+    } catch(e) {
+      console.error('Error loading preferences:', e);
+      window._prefs = defaultPrefs(role);
+      renderPreferences(uid, role, window._prefs);
+    }
+  }
+
+  async function savePref(uid, key, value) {
+    try {
+      const { doc, setDoc } = window._firestoreFns;
+      window._prefs[key] = value;
+      await setDoc(doc(window._db, 'preferences', uid), window._prefs);
+      document.getElementById('prefsSuccess').textContent = 'Preferences saved.';
+      document.getElementById('prefsSuccess').classList.add('show');
+      setTimeout(() => document.getElementById('prefsSuccess').classList.remove('show'), 2000);
+    } catch(e) {
+      console.error('Error saving preference:', e);
+      document.getElementById('prefsError').textContent = 'Error saving. Please try again.';
+      document.getElementById('prefsError').classList.add('show');
+    }
+  }
+
+  function renderPreferences(uid, role, prefs) {
+    const isPro = role === 'pro';
+
+    const section = (title, sub, rows) => `
+      <div class="pref-section">
+        <div class="pref-section-header">
+          <div class="pref-section-title">${title}</div>
+          ${sub ? `<div class="pref-section-sub">${sub}</div>` : ''}
+        </div>
+        ${rows}
+      </div>`;
+
+    const row = (key, label, desc, locked) => {
+      const checked = prefs[key] ? 'checked' : '';
+      return `<div class="pref-row${locked ? ' locked' : ''}">
+        <div class="pref-row-left">
+          <div class="pref-row-label">${label}</div>
+          ${desc ? `<div class="pref-row-desc">${desc}</div>` : ''}
+        </div>
+        <label class="toggle">
+          <input type="checkbox" ${checked} ${locked ? 'disabled' : ''}
+            onchange="savePref('${uid}','${key}',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>`;
+    };
+
+    const html = `
+      <p style="font-size:0.83rem;color:var(--muted2);margin-bottom:1.5rem;line-height:1.6;">
+        Toggle sections on or off to customize what you see when you open a scouting report.
+        ${!isPro ? '<br><span style="color:var(--accent);">Upgrade to Pro to unlock additional sections.</span>' : ''}
+      </p>
+
+      ${section('Report Overview', 'Always visible',
+        row('show_team_summary','Team Summary','The overall scouting summary and cover page notes.',false) +
+        row('show_lineup','Projected Lineup & Pitching Staff','Batting order, projected starter, and reliever info.',false)
+      )}
+
+      ${section('Pitching', '',
+        row('show_pitching','Pitching Summary Table','IP, H, R, BB, K, and rate stats for each pitcher.',false) +
+        row('show_velo','Velocity Profiles','Average, peak, and range for each pitcher.',!isPro) +
+        row('show_pitch_type','Pitch Type Breakdown','Usage % and count tendencies by pitch type.',!isPro)
+      )}
+
+      ${section('Hitting', '',
+        row('show_hitting','Hitting Summary Table','Full batting stats — AVG, OPS, K%, BB%, and more.',false) +
+        row('show_fielding','Fielding Summary','Positions, errors, and CS data.',false) +
+        row('show_spray_chart','Spray Charts','Hit location charts per batter.',false) +
+        row('show_count_tendencies','Count Tendencies','Swing% and take% by count for each hitter.',false)
+      )}
+
+      ${section('Player Cards', 'Detailed per-player breakdowns',
+        row('show_player_cards','Full Player Cards','Detailed individual cards for every hitter.',!isPro) +
+        row('show_pitch_notes','How to Pitch To Notes','AI-generated approach notes per hitter.',!isPro)
+      )}`;
+
+    document.getElementById('prefsContainer').innerHTML = html;
+  }
+
+  window._savePref = savePref;
+
+
+
+  // Failsafe — if auth takes too long, hide loading screen anyway
+  setTimeout(() => {
+    const ls = document.getElementById("loadingScreen");
+    if (ls && ls.style.display !== "none") {
+      ls.style.display = "none";
+      console.warn("Loading screen hidden by failsafe timeout");
+    }
+  }, 8000);
+
+  function renderReports(reports) {
+    const container = document.getElementById("reportsContainer");
+    if (!reports.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
+          <div class="empty-title">No Reports Yet</div>
+          <p class="empty-sub">Your scouting reports will appear here once they've been prepared and sent to your account.</p>
+        </div>`;
+      return;
+    }
+
+    const newCount = reports.filter(r => !r.viewed).length;
+    if (newCount > 0) {
+      document.getElementById("reportsBadge").style.display = "inline";
+      document.getElementById("reportsBadge").textContent = newCount;
+    }
+
+    container.innerHTML = `<div class="reports-grid">${reports.map(r => `
+      <div class="report-card" onclick="openReport('${r.id}')">
+        <div class="report-card-top">
+          <span class="report-type-badge ${r.type === 'self' ? 'self' : 'opponent'}">${r.type === 'self' ? 'Self Scout' : 'Opponent'}</span>
+          <span class="report-date">${r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString("en-US", {month:"short", day:"numeric", year:"numeric"}) : "—"}</span>
+        </div>
+        <div class="report-title">${r.title || "Scouting Report"}</div>
+        <div class="report-meta">
+          ${r.gameDate ? `<span>📅 ${r.gameDate}</span>` : ""}
+          ${r.opponent ? `<span>vs ${r.opponent}</span>` : ""}
+        </div>
+        <div class="report-card-footer">
+          ${!r.viewed ? '<span class="report-new-badge">New</span>' : '<span></span>'}
+          <span class="report-open-btn">Open Report <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg></span>
+        </div>
+      </div>`).join("")}</div>`;
+  }
+
+  window._renderReports = renderReports;
+</script>
+
+<script>
+  // ── GLOBAL WRAPPERS ──
+  window.savePref = function(uid, key, val) { if(window._savePref) window._savePref(uid,key,val); };
+
+  // ── VIEW SWITCHING ──
+  window.switchView = function(view) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    document.getElementById("view-" + view).classList.add("active");
+    document.getElementById("nav-" + view).classList.add("active");
+    closeSidebar();
+  }
+
+  // ── SIDEBAR MOBILE ──
+  window.toggleSidebar = function toggleSidebar() {
+    document.getElementById("sidebar").classList.toggle("open");
+    document.getElementById("sidebarOverlay").classList.toggle("open");
+  }
+  window.closeSidebar = function closeSidebar() {
+    document.getElementById("sidebar").classList.remove("open");
+    document.getElementById("sidebarOverlay").classList.remove("open");
+  }
+
+  // ── SIGN OUT ──
+  window.handleSignOut = function handleSignOut() {
+    if (window._signOut) window._signOut();
+  }
+
+  // ── OPEN REPORT ──
+  window.openReport = function openReport(id) {
+    const report = (window._reports || []).find(r => r.id === id);
+    if (!report || !report.htmlContent) {
+      alert("Report content not available.");
+      return;
+    }
+    document.getElementById("viewerTitle").textContent = report.title || "Scouting Report";
+    const iframe = document.getElementById("reportIframe");
+    iframe.srcdoc = report.htmlContent;
+
+    // Apply preferences once iframe has loaded
+    iframe.onload = () => {
+      try {
+        const prefs = window._userPrefs || {};
+        const role = window._userRole || 'basic';
+        applyPrefsToReport(iframe.contentDocument, prefs, role);
+      } catch(e) { console.warn('Could not apply prefs to report:', e); }
+    };
+
+    document.getElementById("reportViewer").classList.add("open");
+    document.body.style.overflow = "hidden";
+  }
+
+  window.closeViewer = function closeViewer() {
+    document.getElementById("reportViewer").classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
+  window.printReport = function printReport() {
+    const iframe = document.getElementById("reportIframe");
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+  }
+
+  // ── SUBMIT REQUEST ──
+  window.submitRequest = async function submitRequest() {
+    const opponent = document.getElementById("reqOpponent").value.trim();
+    const date = document.getElementById("reqDate").value;
+    const gameType = document.getElementById("reqGameType").value;
+    const location = document.getElementById("reqLocation").value.trim();
+    const type = document.getElementById("reqType").value;
+    const notes = document.getElementById("reqNotes").value.trim();
+
+    document.getElementById("requestError").classList.remove("show");
+    document.getElementById("requestSuccess").classList.remove("show");
+
+    if (!opponent || !date) {
+      document.getElementById("requestError").textContent = "Please fill in the opponent name and game date.";
+      document.getElementById("requestError").classList.add("show");
+      return;
+    }
+
+    const btn = document.getElementById("submitRequestBtn");
+    const spinner = document.getElementById("requestSpinner");
+    const label = document.getElementById("submitRequestText");
+    btn.disabled = true;
+    spinner.style.display = "block";
+    label.textContent = "Submitting...";
+
+    try {
+      const { collection, addDoc, serverTimestamp } = window._firestoreFns;
+      await addDoc(collection(window._db, "requests"), {
+        userId: window._user.uid,
+        userEmail: window._user.email,
+        userName: window._user.displayName || "",
+        opponent,
+        gameDate: date,
+        gameType,
+        location,
+        reportType: type,
+        notes,
+        status: "pending",
+        createdAt: serverTimestamp()
+      });
+
+      document.getElementById("requestSuccess").textContent = "Request submitted! Your report will be delivered within 24 hours.";
+      document.getElementById("requestSuccess").classList.add("show");
+
+      // Clear form
+      document.getElementById("reqOpponent").value = "";
+      document.getElementById("reqDate").value = "";
+      document.getElementById("reqLocation").value = "";
+      document.getElementById("reqNotes").value = "";
+
+    } catch (e) {
+      document.getElementById("requestError").textContent = "Something went wrong. Please try again.";
+      document.getElementById("requestError").classList.add("show");
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = "none";
+      label.textContent = "Submit Request";
+    }
+  }
+
+
+  // ── PREFERENCES ──
+  const BASIC_PREFS = ['team-summary','pitching','hitting','spray','counts'];
+  const PRO_PREFS   = ['velocity','pitchtype','notes','player-cards'];
+
+  function loadPreferencesUI(prefs, role) {
+    const allKeys = role === 'pro' ? [...BASIC_PREFS, ...PRO_PREFS] : BASIC_PREFS;
+    allKeys.forEach(key => {
+      const el = document.getElementById('pref-' + key);
+      if (!el) return;
+      // Default to true (show) if not set
+      el.checked = prefs[key] !== false;
+    });
+  }
+
+  function prefChanged() {
+    // Mark save button as needed
+    document.getElementById('prefsSaveMsg').classList.remove('show');
+  }
+
+  async function savePreferences() {
+    const role = window._userRole || 'basic';
+    const allKeys = role === 'pro' ? [...BASIC_PREFS, ...PRO_PREFS] : BASIC_PREFS;
+    const prefs = {};
+    allKeys.forEach(key => {
+      const el = document.getElementById('pref-' + key);
+      if (el) prefs[key] = el.checked;
+    });
+
+    const btn = document.getElementById('savePrefsBtn');
+    const spinner = document.getElementById('prefsSpinner');
+    const label = document.getElementById('prefsBtnText');
+    btn.disabled = true;
+    spinner.style.display = 'block';
+    label.textContent = 'Saving...';
+
+    try {
+      // Save to Firestore
+      const { doc, updateDoc } = window._firestoreFns || {};
+      if (doc && updateDoc && window._db && window._user) {
+        await updateDoc(doc(window._db, 'users', window._user.uid), { preferences: prefs });
+      }
+      window._userPrefs = prefs;
+      document.getElementById('prefsSaveMsg').classList.add('show');
+    } catch (e) {
+      console.error('Error saving prefs:', e);
+      alert('Error saving preferences. Please try again.');
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      label.textContent = 'Save Preferences';
+    }
+  }
+
+  // ── APPLY PREFERENCES TO REPORT VIEWER ──
+  function applyPrefsToReport(iframeDoc, prefs, role) {
+    if (!iframeDoc) return;
+    const allKeys = ['team-summary','pitching','hitting','spray','counts','velocity','pitchtype','notes','player-cards'];
+
+    allKeys.forEach(key => {
+      // Skip pro keys for basic users
+      if (role !== 'pro' && PRO_PREFS.includes(key)) return;
+
+      const show = prefs[key] !== false;
+      const els = iframeDoc.querySelectorAll('[data-os-section="' + key + '"]');
+      els.forEach(el => {
+        el.style.display = show ? '' : 'none';
+      });
+
+      // Special handling — if player-cards hidden, hide the whole cards page
+      if (key === 'player-cards') {
+        const cardsPage = iframeDoc.querySelector('.cards-page');
+        if (cardsPage) cardsPage.style.display = show ? '' : 'none';
+      }
+
+      // If spray hidden, collapse the pcard-left column
+      if (key === 'spray') {
+        iframeDoc.querySelectorAll('.pcard-left').forEach(el => {
+          el.style.display = show ? '' : 'none';
+        });
+        // Make right column full width
+        iframeDoc.querySelectorAll('.pcard-body').forEach(el => {
+          el.style.gridTemplateColumns = show ? '' : '1fr';
+        });
+      }
+    });
+  }
+
+  // ── KEYBOARD ESC to close viewer ──
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeViewer();
+  });
+</script>
+
+</body>
+</html>
