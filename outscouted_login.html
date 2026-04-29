@@ -651,6 +651,15 @@
     try {
       const { signInWithEmailAndPassword } = window._firebase;
       const result = await signInWithEmailAndPassword(window._auth, email, password);
+
+      // Check if email is approved
+      const approved = await window._isEmailApproved(result.user.email);
+      if (!approved) {
+        await window._signOutAuth(window._auth);
+        showError('Access denied. Your email has not been approved. Please contact OutScouted to request access.');
+        return;
+      }
+
       showSuccess('Signed in successfully. Redirecting...');
       setTimeout(() => {
         window.location.href = 'outscouted_dashboard.html';

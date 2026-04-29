@@ -1521,19 +1521,37 @@ const uploadedImages = [];
 let parsedData = null;
 let boxScoreData = []; // parsed from images
 
-// ── API KEY (hardcoded) ──
-const _HARDCODED_API_KEY = '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';
-function saveApiKey() { /* no-op — key is hardcoded */ }
-function getApiKey() { return _HARDCODED_API_KEY; }
+// ── API KEY (loaded from Firestore for admin) ──
+let _apiKey = '';
+function saveApiKey() {
+  const val = document.getElementById('apiKeyInput').value.trim();
+  if (val) {
+    _apiKey = val;
+    sessionStorage.setItem('scout_api_key', val);
+  }
+  updateApiKeyStatus();
+}
+function getApiKey() {
+  return _apiKey || sessionStorage.getItem('scout_api_key') || '';
+}
 function updateApiKeyStatus() {
+  const key = getApiKey();
   const el = document.getElementById('apiKeyStatus');
   if (!el) return;
-  el.textContent = '✓ set';
-  el.style.color = 'var(--success)';
+  if (key.startsWith('sk-ant-')) {
+    el.textContent = '✓ set';
+    el.style.color = 'var(--success)';
+  } else if (key) {
+    el.textContent = '⚠ check key';
+    el.style.color = 'var(--accent)';
+  } else {
+    el.textContent = 'loaded after sign-in';
+    el.style.color = 'var(--muted)';
+  }
 }
 window.addEventListener('DOMContentLoaded', () => {
   const inp = document.getElementById('apiKeyInput');
-  if (inp) { inp.value = '••••••••'; inp.disabled = true; }
+  if (inp) { inp.disabled = true; inp.placeholder = 'Sign in as admin...'; }
   updateApiKeyStatus();
 });
 
@@ -5139,7 +5157,7 @@ function exportCSV() {
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import {
-    getFirestore, collection, getDocs, addDoc, query, orderBy, serverTimestamp
+    getFirestore, collection, getDocs, addDoc, query, orderBy, serverTimestamp, doc, getDoc, setDoc
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -5174,6 +5192,7 @@ function exportCSV() {
       if (user.email === ADMIN_EMAIL) {
         window._isAdmin = true;
         adminLink.style.display = '';
+        await loadApiKey();
         await loadUsers();
       }
     } else {
@@ -5196,7 +5215,46 @@ function exportCSV() {
     document.getElementById('sendPanel').classList.remove('visible');
   });
 
-  // Load users for dropdown
+  // Load API key from Firestore (admin only)
+  async function loadApiKey() {
+    try {
+      const keyDoc = await getDoc(doc(db, 'config', 'apiKeys'));
+      if (keyDoc.exists() && keyDoc.data().anthropic) {
+        _apiKey = keyDoc.data().anthropic;
+        const inp = document.getElementById('apiKeyInput');
+        if (inp) { inp.value = '••••••••'; inp.disabled = true; }
+        updateApiKeyStatus();
+      } else {
+        // No key stored yet — let admin enter it and save
+        const inp = document.getElementById('apiKeyInput');
+        if (inp) {
+          inp.disabled = false;
+          inp.placeholder = 'Paste your API key...';
+          inp.value = '';
+          // Save to Firestore on change
+          inp.addEventListener('change', async () => {
+            const val = inp.value.trim();
+            if (val && val.startsWith('sk-ant-')) {
+              try {
+                await setDoc(doc(db, 'config', 'apiKeys'), { anthropic: val }, { merge: true });
+                _apiKey = val;
+                inp.value = '••••••••';
+                inp.disabled = true;
+                updateApiKeyStatus();
+              } catch (e) {
+                console.error('Failed to save API key:', e);
+              }
+            }
+          });
+        }
+        updateApiKeyStatus();
+      }
+    } catch (e) {
+      console.error('Failed to load API key:', e);
+    }
+  }
+
+  // Load users for dropdown (grouped by team)
   async function loadUsers() {
     try {
       const q = query(collection(db, 'users'), orderBy('email'));
@@ -5205,13 +5263,35 @@ function exportCSV() {
       snap.forEach(d => _users.push({ id: d.id, ...d.data() }));
 
       const sel = document.getElementById('v2SendUser');
-      sel.innerHTML = '<option value="">— Select user —</option>';
+      const teams = {};
+      const noTeam = [];
       _users.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u.id;
-        opt.textContent = u.email + (u.name ? ' (' + u.name + ')' : '') + (u.role ? ' [' + u.role + ']' : '');
-        sel.appendChild(opt);
+        if (u.team) {
+          if (!teams[u.team]) teams[u.team] = [];
+          teams[u.team].push(u);
+        } else {
+          noTeam.push(u);
+        }
       });
+
+      let html = '<option value="">— Select user or team —</option>';
+      const teamNames = Object.keys(teams).sort();
+      if (teamNames.length) {
+        html += '<optgroup label="Send to Team">';
+        teamNames.forEach(t => { html += `<option value="team:${t}">⚾ ${t} (${teams[t].length} users)</option>`; });
+        html += '</optgroup>';
+      }
+      teamNames.forEach(t => {
+        html += `<optgroup label="${t}">`;
+        teams[t].forEach(u => { html += `<option value="${u.id}">${u.email}${u.name ? ' (' + u.name + ')' : ''}${u.role ? ' [' + u.role + ']' : ''}</option>`; });
+        html += '</optgroup>';
+      });
+      if (noTeam.length) {
+        html += '<optgroup label="No Team">';
+        noTeam.forEach(u => { html += `<option value="${u.id}">${u.email}${u.name ? ' (' + u.name + ')' : ''}${u.role ? ' [' + u.role + ']' : ''}</option>`; });
+        html += '</optgroup>';
+      }
+      sel.innerHTML = html;
     } catch (err) {
       console.error('Failed to load users:', err);
     }
@@ -5229,7 +5309,7 @@ function exportCSV() {
     const title = document.getElementById('v2SendTitle').value.trim();
     const opponent = document.getElementById('v2SendOpponent').value.trim();
     const gameDate = document.getElementById('v2SendGameDate').value;
-    const userId = document.getElementById('v2SendUser').value;
+    const sendTarget = document.getElementById('v2SendUser').value;
     const htmlContent = window._lastReportHTML;
 
     const errEl = document.getElementById('v2SendError');
@@ -5238,7 +5318,7 @@ function exportCSV() {
     sucEl.classList.remove('show');
 
     if (!title) { showAlert('error', 'Please enter a report title.'); return; }
-    if (!userId) { showAlert('error', 'Please select a user to send to.'); return; }
+    if (!sendTarget) { showAlert('error', 'Please select a user or team to send to.'); return; }
     if (!htmlContent) { showAlert('error', 'Please generate a report first (click Download Report).'); return; }
 
     const btn = document.getElementById('v2SendBtn');
@@ -5247,18 +5327,33 @@ function exportCSV() {
     btnText.textContent = 'Sending...';
 
     try {
-      await addDoc(collection(db, 'reports'), {
-        userId,
-        title,
-        opponent: opponent || '',
-        gameDate: gameDate || '',
-        type: 'scouting',
-        htmlContent,
-        viewed: false,
-        createdAt: serverTimestamp()
-      });
+      // Determine target user(s)
+      let targetUsers = [];
+      if (sendTarget.startsWith('team:')) {
+        const teamName = sendTarget.substring(5);
+        targetUsers = _users.filter(u => u.team === teamName);
+        if (!targetUsers.length) { showAlert('error', 'No users found in this team.'); btn.disabled = false; btnText.textContent = 'Send Report to User'; return; }
+      } else {
+        targetUsers = [{ id: sendTarget }];
+      }
 
-      showAlert('success', 'Report sent! It\'s now live in the user\'s dashboard.');
+      for (const u of targetUsers) {
+        await addDoc(collection(db, 'reports'), {
+          userId: u.id,
+          title,
+          opponent: opponent || '',
+          gameDate: gameDate || '',
+          type: 'scouting',
+          htmlContent,
+          viewed: false,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      const msg = targetUsers.length > 1
+        ? `Report sent to ${targetUsers.length} users!`
+        : 'Report sent! It\'s now live in the user\'s dashboard.';
+      showAlert('success', msg);
       document.getElementById('v2SendTitle').value = '';
       document.getElementById('v2SendGameDate').value = '';
       document.getElementById('v2SendUser').value = '';
