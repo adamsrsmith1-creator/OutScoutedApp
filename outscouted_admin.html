@@ -902,6 +902,11 @@
   }
 
   // ── RENDER DEMO REQUESTS ──
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
   function renderDemos() {
     const container = document.getElementById('demosContainer');
     if (!_allDemos.length) {
@@ -910,13 +915,12 @@
         <div class="empty-title">No Demo Requests Yet</div>
         <p class="empty-sub">Demo requests from the landing page will appear here.</p>
       </div>`;
+      document.getElementById('demosBadge').style.display = 'none';
       return;
     }
 
-    if (_allDemos.length > 0) {
-      document.getElementById('demosBadge').style.display = 'inline';
-      document.getElementById('demosBadge').textContent = _allDemos.length;
-    }
+    document.getElementById('demosBadge').style.display = 'inline';
+    document.getElementById('demosBadge').textContent = _allDemos.length;
 
     container.innerHTML = `<table>
       <thead><tr>
@@ -924,7 +928,7 @@
       </tr></thead>
       <tbody>${_allDemos.map(d => `
         <tr>
-          <td style="font-weight:600;">${d.email || '—'}</td>
+          <td style="font-weight:600;">${escapeHtml(d.email) || '—'}</td>
           <td style="color:var(--muted2);">${d.createdAt?.toDate ? d.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + ' ' + d.createdAt.toDate().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—'}</td>
         </tr>`).join('')}
       </tbody>
