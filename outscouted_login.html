@@ -493,8 +493,12 @@
     signInWithPopup,
     GoogleAuthProvider,
     sendPasswordResetEmail,
-    onAuthStateChanged
+    onAuthStateChanged,
+    signOut
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore, collection, query, where, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyASnfBe4aVyEjEB-GxYI4VDcfLihQrf-CE",
@@ -507,18 +511,40 @@
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
+  const db = getFirestore(app);
   const googleProvider = new GoogleAuthProvider();
+  const ADMIN_EMAIL = 'adamsrsmith1@gmail.com';
+
+  // Check if email is approved (exists in users collection or is admin)
+  async function isEmailApproved(email) {
+    if (email === ADMIN_EMAIL) return true;
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const snap = await getDocs(q);
+      return !snap.empty;
+    } catch (e) {
+      console.error('Error checking email approval:', e);
+      return false;
+    }
+  }
 
   // If already logged in, redirect to app
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (user) {
-      window.location.href = 'outscouted_dashboard.html';
+      const approved = await isEmailApproved(user.email);
+      if (approved) {
+        window.location.href = 'outscouted_dashboard.html';
+      } else {
+        await signOut(auth);
+      }
     }
   });
 
   // Expose to global scope
   window._auth = auth;
   window._googleProvider = googleProvider;
+  window._isEmailApproved = isEmailApproved;
+  window._signOutAuth = signOut;
   window._firebase = {
     signInWithEmailAndPassword,
     signInWithPopup,
@@ -593,6 +619,15 @@
     try {
       const { signInWithPopup } = window._firebase;
       const result = await signInWithPopup(window._auth, window._googleProvider);
+
+      // Check if email is approved
+      const approved = await window._isEmailApproved(result.user.email);
+      if (!approved) {
+        await window._signOutAuth(window._auth);
+        showError('Access denied. Your email has not been approved. Please contact OutScouted to request access.');
+        return;
+      }
+
       showSuccess('Signed in as ' + result.user.email + '. Redirecting...');
       setTimeout(() => {
         window.location.href = 'outscouted_dashboard.html';

@@ -417,6 +417,10 @@
     <span class="admin-badge">Admin</span>
   </div>
   <div class="header-right">
+    <a href="outscouted_dashboard.html" class="btn-app">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1m-2 0h2"/></svg>
+      Dashboard
+    </a>
     <a href="OutScoutedAppv2.html" class="btn-app">
       <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
       Scouting App
@@ -895,7 +899,7 @@
 
     const tableHtml = `<table>
       <thead><tr>
-        <th>User</th><th>Opponent</th><th>Game Date</th><th>Type</th><th>Report Type</th><th>Notes</th><th>Submitted</th><th>Status</th><th>Actions</th>
+        <th>User</th><th>Opponent</th><th>Game Date</th><th>Type</th><th>Report Type</th><th>GameChanger</th><th>Notes</th><th>Submitted</th><th>Status</th><th>Actions</th>
       </tr></thead>
       <tbody>${_allRequests.map(r => `
         <tr>
@@ -904,6 +908,7 @@
           <td style="color:var(--muted2);">${r.gameDate || '—'}</td>
           <td><span class="badge basic" style="text-transform:capitalize;">${r.gameType || '—'}</span></td>
           <td style="color:var(--muted2);font-size:0.8rem;">${r.reportType || 'full'}</td>
+          <td style="font-size:0.8rem;">${r.gameChangerLink ? `<a href="${r.gameChangerLink}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">View</a>` : '—'}</td>
           <td style="color:var(--muted2);font-size:0.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.notes || ''}">${r.notes || '—'}</td>
           <td style="color:var(--muted2);">${r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}</td>
           <td><span class="badge ${r.status === 'complete' ? 'complete' : 'pending'}">${r.status === 'complete' ? 'Complete' : 'Pending'}</span></td>

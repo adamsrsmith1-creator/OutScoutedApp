@@ -1521,39 +1521,20 @@ const uploadedImages = [];
 let parsedData = null;
 let boxScoreData = []; // parsed from images
 
-// ── API KEY ──
-function saveApiKey() {
-  const val = document.getElementById('apiKeyInput').value.trim();
-  if (val) sessionStorage.setItem('scout_api_key', val);
-  updateApiKeyStatus();
-}
-function getApiKey() {
-  return sessionStorage.getItem('scout_api_key') || document.getElementById('apiKeyInput').value.trim() || '';
-}
+// ── API KEY (hardcoded) ──
+const _HARDCODED_API_KEY = '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';
+function saveApiKey() { /* no-op — key is hardcoded */ }
+function getApiKey() { return _HARDCODED_API_KEY; }
 function updateApiKeyStatus() {
-  const key = getApiKey();
   const el = document.getElementById('apiKeyStatus');
   if (!el) return;
-  if (key.startsWith('sk-ant-')) {
-    el.textContent = '✓ set';
-    el.style.color = 'var(--success)';
-  } else if (key) {
-    el.textContent = '⚠ check key';
-    el.style.color = 'var(--accent)';
-  } else {
-    el.textContent = 'required for AI features';
-    el.style.color = 'var(--muted)';
-  }
+  el.textContent = '✓ set';
+  el.style.color = 'var(--success)';
 }
-// Restore from session on load
 window.addEventListener('DOMContentLoaded', () => {
-  const saved = sessionStorage.getItem('scout_api_key');
-  if (saved) {
-    document.getElementById('apiKeyInput').value = saved;
-    updateApiKeyStatus();
-  } else {
-    updateApiKeyStatus();
-  }
+  const inp = document.getElementById('apiKeyInput');
+  if (inp) { inp.value = '••••••••'; inp.disabled = true; }
+  updateApiKeyStatus();
 });
 
 // ── SCOUT TEAM TAGS ──
