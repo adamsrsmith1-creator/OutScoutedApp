@@ -516,26 +516,27 @@
   const ADMIN_EMAIL = 'adamsrsmith1@gmail.com';
 
   // Check if email is approved (exists in users collection or is admin)
+  // Returns: true (approved), false (not approved), throws on Firestore error
   async function isEmailApproved(email) {
     if (email === ADMIN_EMAIL) return true;
-    try {
-      const q = query(collection(db, 'users'), where('email', '==', email));
-      const snap = await getDocs(q);
-      return !snap.empty;
-    } catch (e) {
-      console.error('Error checking email approval:', e);
-      return false;
-    }
+    const q = query(collection(db, 'users'), where('email', '==', email));
+    const snap = await getDocs(q);
+    return !snap.empty;
   }
 
   // If already logged in, redirect to app
   onAuthStateChanged(auth, async (user) => {
     if (user) {
-      const approved = await isEmailApproved(user.email);
-      if (approved) {
-        window.location.href = 'outscouted_dashboard.html';
-      } else {
-        await signOut(auth);
+      try {
+        const approved = await isEmailApproved(user.email);
+        if (approved) {
+          window.location.href = 'outscouted_dashboard.html';
+        } else {
+          await signOut(auth);
+        }
+      } catch (e) {
+        console.error('Error checking email approval:', e);
+        // Don't sign out on transient errors — leave user on login page
       }
     }
   });
@@ -621,7 +622,15 @@
       const result = await signInWithPopup(window._auth, window._googleProvider);
 
       // Check if email is approved
-      const approved = await window._isEmailApproved(result.user.email);
+      let approved;
+      try {
+        approved = await window._isEmailApproved(result.user.email);
+      } catch (e) {
+        console.error('Error checking email approval:', e);
+        await window._signOutAuth(window._auth);
+        showError('Unable to verify your account. Please try again.');
+        return;
+      }
       if (!approved) {
         await window._signOutAuth(window._auth);
         showError('Access denied. Your email has not been approved. Please contact OutScouted to request access.');
@@ -653,7 +662,15 @@
       const result = await signInWithEmailAndPassword(window._auth, email, password);
 
       // Check if email is approved
-      const approved = await window._isEmailApproved(result.user.email);
+      let approved;
+      try {
+        approved = await window._isEmailApproved(result.user.email);
+      } catch (e) {
+        console.error('Error checking email approval:', e);
+        await window._signOutAuth(window._auth);
+        showError('Unable to verify your account. Please try again.');
+        return;
+      }
       if (!approved) {
         await window._signOutAuth(window._auth);
         showError('Access denied. Your email has not been approved. Please contact OutScouted to request access.');

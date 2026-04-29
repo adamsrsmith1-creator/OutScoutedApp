@@ -1396,6 +1396,16 @@
       renderReports(reports);
     } catch (e) {
       console.error("Error loading reports:", e);
+      const errMsg = e.message || '';
+      if (errMsg.includes('index')) {
+        document.getElementById("reportsError").textContent =
+          'Reports require a Firestore index. Check the browser console for a link to create it.';
+        document.getElementById("reportsError").classList.add('show');
+      } else {
+        document.getElementById("reportsError").textContent =
+          'Unable to load reports. Please try refreshing the page.';
+        document.getElementById("reportsError").classList.add('show');
+      }
     }
   }
 

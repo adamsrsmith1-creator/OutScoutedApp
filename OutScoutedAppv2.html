@@ -5254,6 +5254,11 @@ function exportCSV() {
     }
   }
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
   // Load users for dropdown (grouped by team)
   async function loadUsers() {
     try {
@@ -5278,17 +5283,17 @@ function exportCSV() {
       const teamNames = Object.keys(teams).sort();
       if (teamNames.length) {
         html += '<optgroup label="Send to Team">';
-        teamNames.forEach(t => { html += `<option value="team:${t}">⚾ ${t} (${teams[t].length} users)</option>`; });
+        teamNames.forEach(t => { html += `<option value="team:${escapeHtml(t)}">⚾ ${escapeHtml(t)} (${teams[t].length} users)</option>`; });
         html += '</optgroup>';
       }
       teamNames.forEach(t => {
-        html += `<optgroup label="${t}">`;
-        teams[t].forEach(u => { html += `<option value="${u.id}">${u.email}${u.name ? ' (' + u.name + ')' : ''}${u.role ? ' [' + u.role + ']' : ''}</option>`; });
+        html += `<optgroup label="${escapeHtml(t)}">`;
+        teams[t].forEach(u => { html += `<option value="${escapeHtml(u.id)}">${escapeHtml(u.email)}${u.name ? ' (' + escapeHtml(u.name) + ')' : ''}${u.role ? ' [' + escapeHtml(u.role) + ']' : ''}</option>`; });
         html += '</optgroup>';
       });
       if (noTeam.length) {
         html += '<optgroup label="No Team">';
-        noTeam.forEach(u => { html += `<option value="${u.id}">${u.email}${u.name ? ' (' + u.name + ')' : ''}${u.role ? ' [' + u.role + ']' : ''}</option>`; });
+        noTeam.forEach(u => { html += `<option value="${escapeHtml(u.id)}">${escapeHtml(u.email)}${u.name ? ' (' + escapeHtml(u.name) + ')' : ''}${u.role ? ' [' + escapeHtml(u.role) + ']' : ''}</option>`; });
         html += '</optgroup>';
       }
       sel.innerHTML = html;
