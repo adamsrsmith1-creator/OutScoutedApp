@@ -340,6 +340,21 @@
     text-decoration: none;
   }
   .access-note a:hover { text-decoration: underline; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 768px) {
+    .page { grid-template-columns: 1fr; }
+    .left-panel { display: none; }
+    .right-panel { padding: 3rem 1.5rem; }
+    nav { padding: 0 1.25rem; }
+  }
+  @media (max-width: 480px) {
+    nav { padding: 0 1rem; }
+    .nav-brand { font-size: 1.2rem; }
+    .right-panel { padding: 2rem 1rem; }
+    .form-title { font-size: 1.5rem; }
+    .form-box { max-width: 100%; }
+  }
 </style>
 </head>
 <body>

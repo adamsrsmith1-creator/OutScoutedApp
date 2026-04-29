@@ -340,6 +340,24 @@
   }
   .char-count { font-size: 0.72rem; color: var(--muted); margin-top: 0.3rem; text-align: right; }
   .char-count.has-content { color: var(--success); }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .main { padding: 1.25rem; }
+    header { padding: 0 1rem; }
+    .header-right { gap: 0.5rem; }
+    .btn-app { font-size: 0.7rem; padding: 0.35rem 0.6rem; }
+    .btn-signout { font-size: 0.7rem; padding: 0.35rem 0.6rem; }
+    .page-title { font-size: 1.4rem; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .send-form { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 480px) {
+    .main { padding: 1rem 0.75rem; }
+    .stat-grid { grid-template-columns: 1fr; }
+    .brand { font-size: 1.1rem; }
+  }
 </style>
 </head>
 <body>
