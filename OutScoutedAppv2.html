@@ -5238,6 +5238,13 @@ function exportCSV() {
 
   // Send report to user
   window._sendReportToUser = async function() {
+    // Authorization check — must be authenticated admin
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.email !== ADMIN_EMAIL || !window._isAdmin) {
+      showAlert('error', 'Unauthorized. Only the admin can send reports.');
+      return;
+    }
+
     const title = document.getElementById('v2SendTitle').value.trim();
     const opponent = document.getElementById('v2SendOpponent').value.trim();
     const gameDate = document.getElementById('v2SendGameDate').value;
