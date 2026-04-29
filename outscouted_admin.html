@@ -392,6 +392,11 @@
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
       Sent Reports
     </button>
+    <button class="nav-item" onclick="switchView('demos')" id="nav-demos">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      Demo Requests
+      <span class="nav-count gold" id="demosBadge" style="display:none;">0</span>
+    </button>
   </nav>
 
   <!-- MAIN -->
@@ -425,6 +430,10 @@
         <div class="stat-card">
           <div class="stat-card-num" id="statPending">—</div>
           <div class="stat-card-label">Pending Requests</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-num" id="statDemos">—</div>
+          <div class="stat-card-label">Demo Requests</div>
         </div>
       </div>
 
@@ -579,6 +588,25 @@
       </div>
     </div>
 
+    <!-- DEMO REQUESTS -->
+    <div class="view" id="view-demos">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Demo Requests</div>
+          <div class="page-sub">Emails submitted through the landing page demo form.</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <div id="demosContainer">
+          <div class="empty-state" style="border:none;">
+            <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg></div>
+            <div class="empty-title">No Demo Requests Yet</div>
+            <p class="empty-sub">Demo requests from the landing page will appear here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -630,6 +658,7 @@
   let _allUsers = [];
   let _allRequests = [];
   let _allReports = [];
+  let _allDemos = [];
 
   // ── VIEW SWITCHING ──
   function switchView(view) {
@@ -680,6 +709,13 @@
       _allReports = [];
       repSnap.forEach(d => _allReports.push({ id: d.id, ...d.data() }));
 
+      // Load demo requests
+      try {
+        const demoSnap = await getDocs(query(collection(db, 'demo_requests'), orderBy('createdAt', 'desc')));
+        _allDemos = [];
+        demoSnap.forEach(d => _allDemos.push({ id: d.id, ...d.data() }));
+      } catch(e) { _allDemos = []; }
+
       renderAll();
     } catch (e) {
       console.error('Error loading data:', e);
@@ -691,6 +727,7 @@
     renderUsers();
     renderRequests();
     renderReports();
+    renderDemos();
     populateUserDropdown();
   }
 
@@ -702,6 +739,7 @@
     document.getElementById('statPro').textContent = pro;
     document.getElementById('statReports').textContent = _allReports.length;
     document.getElementById('statPending').textContent = pending;
+    document.getElementById('statDemos').textContent = _allDemos.length;
 
     if (pending > 0) {
       document.getElementById('requestsBadge').style.display = 'inline';
@@ -859,6 +897,36 @@
           <td>${r.viewed ? '<span style="color:var(--success);font-size:0.8rem;">✓ Viewed</span>' : '<span style="color:var(--muted);font-size:0.8rem;">Not yet</span>'}</td>
         </tr>`;
       }).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  // ── RENDER DEMO REQUESTS ──
+  function renderDemos() {
+    const container = document.getElementById('demosContainer');
+    if (!_allDemos.length) {
+      container.innerHTML = `<div class="empty-state" style="border:none;">
+        <div class="empty-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg></div>
+        <div class="empty-title">No Demo Requests Yet</div>
+        <p class="empty-sub">Demo requests from the landing page will appear here.</p>
+      </div>`;
+      return;
+    }
+
+    if (_allDemos.length > 0) {
+      document.getElementById('demosBadge').style.display = 'inline';
+      document.getElementById('demosBadge').textContent = _allDemos.length;
+    }
+
+    container.innerHTML = `<table>
+      <thead><tr>
+        <th>Email</th><th>Submitted</th>
+      </tr></thead>
+      <tbody>${_allDemos.map(d => `
+        <tr>
+          <td style="font-weight:600;">${d.email || '—'}</td>
+          <td style="color:var(--muted2);">${d.createdAt?.toDate ? d.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + ' ' + d.createdAt.toDate().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—'}</td>
+        </tr>`).join('')}
       </tbody>
     </table>`;
   }

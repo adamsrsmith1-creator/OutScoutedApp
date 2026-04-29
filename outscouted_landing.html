@@ -746,7 +746,7 @@
     <li><a href="#demo">Demo</a></li>
   </ul>
   <div class="nav-actions">
-    <a href="#" class="btn-login">Log In</a>
+    <a href="outscouted_login.html" class="btn-login">Log In</a>
     <a href="#demo" class="btn-cta-nav">Request Demo</a>
   </div>
 </nav>
@@ -1022,11 +1022,11 @@
       See OutScouted in action. Enter your email and we'll reach out to schedule a walkthrough with your coaching staff — no commitment required.
     </p>
     <div style="margin: 2rem 0;"></div>
-    <form class="cta-form" onsubmit="return false;">
-      <input type="email" placeholder="your@email.com">
-      <button type="submit" class="btn-primary" style="white-space:nowrap;">Request Demo</button>
+    <form class="cta-form" id="demoForm" onsubmit="submitDemo(event)">
+      <input type="email" id="demoEmail" placeholder="your@email.com" required>
+      <button type="submit" class="btn-primary" id="demoBtn" style="white-space:nowrap;">Request Demo</button>
     </form>
-    <p style="color: var(--muted); font-size: 0.78rem; margin-top: 1.25rem;">
+    <p id="demoMsg" style="color: var(--muted); font-size: 0.78rem; margin-top: 1.25rem;">
       No spam. No pressure. We'll reply within one business day.
     </p>
   </div>
@@ -1049,6 +1049,53 @@
     <div class="footer-copy">© 2025 OutScouted. All rights reserved.</div>
   </div>
 </footer>
+
+<!-- FIREBASE (demo form) -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyASnfBe4aVyEjEB-GxYI4VDcfLihQrf-CE",
+    authDomain: "outscouted-app.firebaseapp.com",
+    projectId: "outscouted-app",
+    storageBucket: "outscouted-app.firebasestorage.app",
+    messagingSenderId: "205396718391",
+    appId: "1:205396718391:web:5f6799fe236cac6d78a0b2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.submitDemo = async function(e) {
+    e.preventDefault();
+    const email = document.getElementById('demoEmail').value.trim();
+    const btn = document.getElementById('demoBtn');
+    const msg = document.getElementById('demoMsg');
+
+    if (!email) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    try {
+      await addDoc(collection(db, 'demo_requests'), {
+        email,
+        createdAt: serverTimestamp()
+      });
+      msg.style.color = '#52c47a';
+      msg.textContent = 'Request received! We\'ll be in touch within one business day.';
+      document.getElementById('demoEmail').value = '';
+    } catch (err) {
+      console.error('Error submitting demo request:', err);
+      msg.style.color = '#e05252';
+      msg.textContent = 'Something went wrong. Please try again or email us directly.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Request Demo';
+    }
+  };
+</script>
 
 </body>
 </html>
