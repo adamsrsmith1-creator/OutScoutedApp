@@ -1054,6 +1054,104 @@
   #printMainSections { display: contents; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+
+  /* ── NAV LINKS ── */
+  .header-nav { display: flex; align-items: center; gap: 0.5rem; }
+  .header-nav a {
+    padding: 0.35rem 0.75rem;
+    background: rgba(184,150,62,0.08);
+    border: 1px solid rgba(184,150,62,0.2);
+    border-radius: var(--r);
+    color: var(--accent);
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    text-decoration: none; transition: all 0.2s;
+    display: flex; align-items: center; gap: 0.35rem;
+  }
+  .header-nav a:hover { background: rgba(184,150,62,0.18); }
+  .header-nav .nav-sep { width: 1px; height: 18px; background: var(--border); margin: 0 0.15rem; }
+  .auth-status {
+    font-size: 0.72rem; color: var(--muted);
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .auth-status .user-email { color: var(--accent); font-weight: 500; }
+  .btn-signin, .btn-signout-v2 {
+    padding: 0.35rem 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    color: var(--muted2);
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-signin:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-signout-v2:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* ── SEND TO USER PANEL ── */
+  .send-panel {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 1.5rem;
+    margin-top: 1.25rem;
+  }
+  .send-panel.visible { display: block; }
+  .send-panel .panel-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text); margin-bottom: 1rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .send-panel .panel-title svg { color: var(--accent); }
+  .send-panel .send-fields {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .send-panel .send-field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .send-panel .send-field.full { grid-column: 1 / -1; }
+  .send-panel .send-field label {
+    font-size: 0.72rem; color: var(--muted2);
+    letter-spacing: 0.05em; text-transform: uppercase;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+  }
+  .send-panel select {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    font-size: 0.88rem; padding: 0.5rem 0.75rem;
+    outline: none;
+  }
+  .send-panel select:focus { border-color: var(--accent); }
+  .btn-send {
+    width: 100%; padding: 0.75rem;
+    background: var(--accent);
+    border: none; border-radius: var(--r);
+    color: #111; font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.95rem; font-weight: 800;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  }
+  .btn-send:hover { background: #caa844; }
+  .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .send-alert {
+    padding: 0.6rem 0.85rem;
+    border-radius: var(--r);
+    font-size: 0.82rem;
+    margin-top: 0.75rem;
+    display: none;
+  }
+  .send-alert.error { background: rgba(192,57,43,0.12); border: 1px solid rgba(192,57,43,0.3); color: #e74c3c; }
+  .send-alert.success { background: rgba(39,174,96,0.12); border: 1px solid rgba(39,174,96,0.3); color: #2ecc71; }
+  .send-alert.show { display: block; }
+  @media(max-width:640px) { .send-panel .send-fields { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -1069,6 +1167,24 @@
     <div class="header-status" id="headerStatus">
       <span class="status-dot" id="statusDot"></span>
       <span id="statusText">No data loaded</span>
+    </div>
+    <div class="header-nav" id="headerNav">
+      <a href="outscouted_landing.html">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1m-2 0h2"/></svg>
+        Site
+      </a>
+      <div id="authNav" style="display:none;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <a href="outscouted_dashboard.html">Dashboard</a>
+          <a href="outscouted_admin.html" id="adminLink" style="display:none;">Admin</a>
+          <div class="nav-sep"></div>
+          <div class="auth-status">
+            <span class="user-email" id="authEmail"></span>
+          </div>
+          <button class="btn-signout-v2" id="signOutBtn">Sign Out</button>
+        </div>
+      </div>
+      <button class="btn-signin" id="signInBtn" style="display:none;">Sign In</button>
     </div>
   </div>
 </header>
@@ -1185,6 +1301,43 @@
     <div class="results-header" style="margin-top:0;">
       <div class="results-title">Scouting Report — <span id="reportTeamName"></span></div>
       <button class="export-btn" onclick="generatePDFReport()">⬇ Download Report</button>
+    </div>
+
+    <!-- SEND TO USER PANEL (visible when admin is logged in) -->
+    <div class="send-panel" id="sendPanel">
+      <div class="panel-title">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        Send Report to User
+      </div>
+      <div class="send-fields">
+        <div class="send-field">
+          <label>Report Title</label>
+          <input type="text" id="v2SendTitle" placeholder="e.g. Opponent — Scouting Report" />
+        </div>
+        <div class="send-field">
+          <label>Opponent</label>
+          <input type="text" id="v2SendOpponent" readonly style="opacity:0.7;cursor:default;" />
+        </div>
+        <div class="send-field">
+          <label>Game Date (optional)</label>
+          <input type="date" id="v2SendGameDate" style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:'Barlow',sans-serif;font-size:0.88rem;padding:0.5rem 0.75rem;outline:none;" />
+        </div>
+        <div class="send-field">
+          <label>Send To</label>
+          <select id="v2SendUser">
+            <option value="">Loading users...</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-send" id="v2SendBtn" onclick="window._sendReportToUser()">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        <span id="v2SendBtnText">Send Report to User</span>
+      </button>
+      <div style="font-size:0.72rem;color:var(--muted);text-align:center;margin-top:0.5rem;">
+        The report will appear instantly in the user's dashboard.
+      </div>
+      <div class="send-alert error" id="v2SendError"></div>
+      <div class="send-alert success" id="v2SendSuccess"></div>
     </div>
 
     <!-- PRINT COVER PAGE (hidden on screen, shown on first print page) -->
@@ -4954,6 +5107,20 @@ function generatePDFReport() {
 </body>
 </html>`;
 
+  // Store for Send to User
+  window._lastReportHTML = html;
+  window._lastReportTeam = teamName;
+
+  // Auto-fill send panel fields
+  const titleEl = document.getElementById('v2SendTitle');
+  const oppEl = document.getElementById('v2SendOpponent');
+  if (titleEl) titleEl.value = teamName + ' — Scouting Report';
+  if (oppEl) oppEl.value = teamName;
+
+  // Show send panel if admin
+  const panel = document.getElementById('sendPanel');
+  if (panel && window._isAdmin) panel.classList.add('visible');
+
   // Download
   const blob = new Blob([html], { type: 'text/html' });
   const a = document.createElement('a');
@@ -4984,6 +5151,154 @@ function exportCSV() {
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='scout_stats.csv';a.click();
 }
+</script>
+
+<!-- FIREBASE INTEGRATION -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore, collection, getDocs, addDoc, query, orderBy, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyASnfBe4aVyEjEB-GxYI4VDcfLihQrf-CE",
+    authDomain: "outscouted-app.firebaseapp.com",
+    projectId: "outscouted-app",
+    storageBucket: "outscouted-app.firebasestorage.app",
+    messagingSenderId: "205396718391",
+    appId: "1:205396718391:web:5f6799fe236cac6d78a0b2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
+
+  window._isAdmin = false;
+  let _users = [];
+
+  onAuthStateChanged(auth, async (user) => {
+    const authNav = document.getElementById('authNav');
+    const signInBtn = document.getElementById('signInBtn');
+    const adminLink = document.getElementById('adminLink');
+    const authEmail = document.getElementById('authEmail');
+
+    if (user) {
+      // Logged in
+      authNav.style.display = '';
+      signInBtn.style.display = 'none';
+      authEmail.textContent = user.email;
+
+      if (user.email === ADMIN_EMAIL) {
+        window._isAdmin = true;
+        adminLink.style.display = '';
+        await loadUsers();
+      }
+    } else {
+      // Not logged in
+      authNav.style.display = 'none';
+      signInBtn.style.display = '';
+      window._isAdmin = false;
+    }
+  });
+
+  // Sign In — redirect to login page
+  document.getElementById('signInBtn').addEventListener('click', () => {
+    window.location.href = 'outscouted_login.html';
+  });
+
+  // Sign Out
+  document.getElementById('signOutBtn').addEventListener('click', async () => {
+    await signOut(auth);
+    window._isAdmin = false;
+    document.getElementById('sendPanel').classList.remove('visible');
+  });
+
+  // Load users for dropdown
+  async function loadUsers() {
+    try {
+      const q = query(collection(db, 'users'), orderBy('email'));
+      const snap = await getDocs(q);
+      _users = [];
+      snap.forEach(d => _users.push({ id: d.id, ...d.data() }));
+
+      const sel = document.getElementById('v2SendUser');
+      sel.innerHTML = '<option value="">— Select user —</option>';
+      _users.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.email + (u.name ? ' (' + u.name + ')' : '') + (u.role ? ' [' + u.role + ']' : '');
+        sel.appendChild(opt);
+      });
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    }
+  }
+
+  // Send report to user
+  window._sendReportToUser = async function() {
+    // Authorization check — must be authenticated admin
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.email !== ADMIN_EMAIL || !window._isAdmin) {
+      showAlert('error', 'Unauthorized. Only the admin can send reports.');
+      return;
+    }
+
+    const title = document.getElementById('v2SendTitle').value.trim();
+    const opponent = document.getElementById('v2SendOpponent').value.trim();
+    const gameDate = document.getElementById('v2SendGameDate').value;
+    const userId = document.getElementById('v2SendUser').value;
+    const htmlContent = window._lastReportHTML;
+
+    const errEl = document.getElementById('v2SendError');
+    const sucEl = document.getElementById('v2SendSuccess');
+    errEl.classList.remove('show');
+    sucEl.classList.remove('show');
+
+    if (!title) { showAlert('error', 'Please enter a report title.'); return; }
+    if (!userId) { showAlert('error', 'Please select a user to send to.'); return; }
+    if (!htmlContent) { showAlert('error', 'Please generate a report first (click Download Report).'); return; }
+
+    const btn = document.getElementById('v2SendBtn');
+    const btnText = document.getElementById('v2SendBtnText');
+    btn.disabled = true;
+    btnText.textContent = 'Sending...';
+
+    try {
+      await addDoc(collection(db, 'reports'), {
+        userId,
+        title,
+        opponent: opponent || '',
+        gameDate: gameDate || '',
+        type: 'scouting',
+        htmlContent,
+        viewed: false,
+        createdAt: serverTimestamp()
+      });
+
+      showAlert('success', 'Report sent! It\'s now live in the user\'s dashboard.');
+      document.getElementById('v2SendTitle').value = '';
+      document.getElementById('v2SendGameDate').value = '';
+      document.getElementById('v2SendUser').value = '';
+    } catch (err) {
+      console.error('Send error:', err);
+      showAlert('error', 'Failed to send report. ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btnText.textContent = 'Send Report to User';
+    }
+  };
+
+  function showAlert(type, msg) {
+    const errEl = document.getElementById('v2SendError');
+    const sucEl = document.getElementById('v2SendSuccess');
+    errEl.classList.remove('show');
+    sucEl.classList.remove('show');
+    const el = type === 'error' ? errEl : sucEl;
+    el.textContent = msg;
+    el.classList.add('show');
+  }
 </script>
 </body>
 </html>
