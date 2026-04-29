@@ -934,7 +934,7 @@
     teamNames.forEach(team => {
       tableBody += `<tr><td colspan="7" style="background:var(--surface2);padding:0.5rem 0.75rem;font-weight:700;font-size:0.8rem;letter-spacing:0.05em;color:var(--accent);border-bottom:2px solid var(--accent-dim);">
         ⚾ ${escapeHtml(team)}
-        <button class="btn btn-ghost btn-sm" style="margin-left:0.75rem;font-size:0.7rem;" onclick="sendToTeam('${escapeHtml(team)}')">Send Report to Team</button>
+        <button class="btn btn-ghost btn-sm" style="margin-left:0.75rem;font-size:0.7rem;" onclick="sendToTeam('${escapeHtml(escapeJsString(team))}')">Send Report to Team</button>
       </td></tr>`;
       teams[team].forEach(u => { tableBody += userRow(u); });
     });
@@ -983,7 +983,7 @@
           <td style="color:var(--muted2);">${r.gameDate || '—'}</td>
           <td><span class="badge basic" style="text-transform:capitalize;">${r.gameType || '—'}</span></td>
           <td style="color:var(--muted2);font-size:0.8rem;">${r.reportType || 'full'}</td>
-          <td style="font-size:0.8rem;">${r.gameChangerLink ? `<a href="${escapeHtml(r.gameChangerLink)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">View</a>` : '—'}</td>
+          <td style="font-size:0.8rem;">${r.gameChangerLink && safeUrl(r.gameChangerLink) ? `<a href="${escapeHtml(safeUrl(r.gameChangerLink))}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">View</a>` : '—'}</td>
           <td style="color:var(--muted2);font-size:0.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.notes || ''}">${r.notes || '—'}</td>
           <td style="color:var(--muted2);">${r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}</td>
           <td><span class="badge ${r.status === 'complete' ? 'complete' : 'pending'}">${r.status === 'complete' ? 'Complete' : 'Pending'}</span></td>
@@ -1056,6 +1056,19 @@
   function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
+  function safeUrl(url) {
+    if (!url) return '';
+    try {
+      const u = new URL(url);
+      return (u.protocol === 'http:' || u.protocol === 'https:') ? url : '';
+    } catch(e) { return ''; }
+  }
+
+  function escapeJsString(str) {
+    if (!str) return '';
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
   }
 
   function renderDemos() {
