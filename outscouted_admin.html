@@ -753,6 +753,10 @@
     _reportType = type;
     const row = document.getElementById('opponentDateRow');
     if (row) row.style.display = type === 'self' ? 'none' : '';
+    if (type === 'self') {
+      document.getElementById('sendOpponent').value = '';
+      document.getElementById('sendGameDate').value = '';
+    }
   }
 
   // ── CHAR COUNT ──
