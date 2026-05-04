@@ -696,7 +696,7 @@
     .parse-btn, #genLineupBtn, #aiNotesBtn, #teamSummaryBtn,
     #teamSummaryEditControls, #teamSummaryEdit, .file-remove, .pitch-remove,
     button[onclick="resetAll()"], .export-btn, #debugPanel, #debugLog,
-    #validationBar { display: none !important; }
+    #validationBar, #lastStartDropZone, #lastStartStatus { display: none !important; }
 
     .container { max-width: 100%; padding: 0 !important; margin: 0 !important; }
 
@@ -1413,6 +1413,17 @@
               <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.65rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:0.4rem;">Pitch Arsenal</div>
               <div id="starterPitches" style="display:flex;flex-direction:column;gap:0.35rem;"></div>
               <button onclick="addPitchRow('starterPitches')" style="margin-top:0.4rem;padding:0.25rem 0.6rem;background:transparent;border:1px dashed var(--border2);border-radius:var(--r);color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-size:0.68rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--muted)'">+ Add pitch</button>
+
+              <!-- Pitcher's Last Start lineup upload -->
+              <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.65rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent);margin-bottom:0.4rem;">Projected Lineup from Last Start</div>
+                <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.5rem;">Upload the box score screenshot from this pitcher's last start to auto-fill the projected batting order.</div>
+                <div id="lastStartDropZone" style="border:1px dashed var(--border2);border-radius:var(--r);padding:0.75rem;text-align:center;cursor:pointer;transition:border-color 0.2s;" onclick="document.getElementById('lastStartInput').click()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">
+                  <input type="file" id="lastStartInput" accept="image/*" onchange="handleLastStartUpload(this.files)" style="display:none;" />
+                  <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);">Drop or click to upload box score</div>
+                </div>
+                <div id="lastStartStatus" style="display:none;margin-top:0.5rem;font-size:0.75rem;color:var(--muted);"></div>
+              </div>
             </div>
 
             <!-- Reliever 1 -->
@@ -2177,6 +2188,14 @@ function resetAll() {
   if (debugLog) debugLog.innerHTML = '';
   const debugPanel = document.getElementById('debugPanel');
   if (debugPanel) debugPanel.style.display = 'none';
+  // Reset last start upload
+  lastStartFile = null;
+  const lastStartDrop = document.getElementById('lastStartDropZone');
+  if (lastStartDrop) {
+    lastStartDrop.innerHTML = `<input type="file" id="lastStartInput" accept="image/*" onchange="handleLastStartUpload(this.files)" style="display:none;" /><div style="font-family:'Barlow Condensed',sans-serif;font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);">Drop or click to upload box score</div>`;
+  }
+  const lastStartStatus = document.getElementById('lastStartStatus');
+  if (lastStartStatus) { lastStartStatus.style.display = 'none'; lastStartStatus.innerHTML = ''; }
   buildLineupRows();
   checkReady();
 }
@@ -3325,6 +3344,69 @@ function generateLineupFromBoxScores() {
   document.getElementById('lineupSourcePill').textContent = 'generated from box scores';
 }
 
+// ── PROJECTED LINEUP FROM PITCHER'S LAST START ──
+let lastStartFile = null;
+
+// Drag-and-drop for the last-start drop zone
+(function() {
+  const zone = document.getElementById('lastStartDropZone');
+  if (!zone) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--accent)'; });
+  zone.addEventListener('dragleave', () => { zone.style.borderColor = 'var(--border2)'; });
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.style.borderColor = 'var(--border2)'; if (e.dataTransfer.files.length) handleLastStartUpload(e.dataTransfer.files); });
+})();
+
+async function handleLastStartUpload(files) {
+  if (!files || !files.length) return;
+  lastStartFile = files[0];
+  const statusEl = document.getElementById('lastStartStatus');
+  const dropZone = document.getElementById('lastStartDropZone');
+  statusEl.style.display = 'block';
+
+  // Get the scout team name from step 1
+  const scoutTeamName = scoutTeams.length ? scoutTeams[0] : '';
+  if (!scoutTeamName) {
+    statusEl.innerHTML = '<span style="color:var(--danger);">Please enter the scout team name in Step 1 first.</span>';
+    return;
+  }
+
+  // Show file name and parsing status
+  dropZone.innerHTML = `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);">${lastStartFile.name}</div>
+    <div style="font-size:0.68rem;color:var(--muted);margin-top:0.2rem;">${fmtSize(lastStartFile.size)}</div>`;
+  statusEl.innerHTML = '<span style="color:var(--accent);">Parsing box score with AI...</span>';
+
+  try {
+    const result = await parseBoxScoreImage(lastStartFile);
+    // Determine which side is the scouted team
+    const scoutLower = scoutTeamName.toLowerCase();
+    const awayMatch = result.awayTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(result.awayTeam?.toLowerCase() || '');
+    const homeMatch = result.homeTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(result.homeTeam?.toLowerCase() || '');
+    const lineup = awayMatch ? result.awayLineup : homeMatch ? result.homeLineup : null;
+
+    if (!lineup || !lineup.length) {
+      statusEl.innerHTML = `<span style="color:var(--danger);">Could not find "${scoutTeamName}" in box score. Teams found: ${result.awayTeam || '?'} vs ${result.homeTeam || '?'}</span>`;
+      return;
+    }
+
+    // Fill the lineup rows with the first 9 starters
+    buildLineupRows();
+    let slot = 1;
+    lineup.forEach(player => {
+      if (!player.name || slot > 9) return;
+      const nameEl = document.getElementById(`lineup_name_${slot}`);
+      const posEl = document.getElementById(`lineup_pos_${slot}`);
+      if (nameEl) nameEl.value = player.name;
+      if (posEl) posEl.value = player.position || '';
+      slot++;
+    });
+
+    document.getElementById('lineupSourcePill').textContent = "from pitcher's last start";
+    statusEl.innerHTML = `<span style="color:var(--success);">Lineup loaded from ${awayMatch ? result.awayTeam : result.homeTeam} box score (${slot - 1} players)</span>`;
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color:var(--danger);">Error parsing: ${err.message}</span>`;
+  }
+}
 
 // ── AI TEAM SUMMARY GENERATOR ──
 async function generateTeamSummary() {
