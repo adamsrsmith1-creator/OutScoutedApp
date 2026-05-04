@@ -1485,7 +1485,7 @@
   }
 
   // ── OPEN REPORT ──
-  window.openReport = function openReport(id) {
+  window.openReport = async function openReport(id) {
     const report = (window._reports || []).find(r => r.id === id);
     if (!report || !report.htmlContent) {
       alert("Report content not available.");
@@ -1506,6 +1506,26 @@
 
     document.getElementById("reportViewer").classList.add("open");
     document.body.style.overflow = "hidden";
+
+    // Mark as viewed in Firestore
+    if (!report.viewed) {
+      try {
+        const { doc, updateDoc } = window._firestoreFns;
+        await updateDoc(doc(window._db, 'reports', id), { viewed: true });
+        report.viewed = true;
+        // Update badge count
+        const newCount = (window._reports || []).filter(r => !r.viewed).length;
+        const badge = document.getElementById("reportsBadge");
+        if (newCount > 0) {
+          badge.style.display = "inline";
+          badge.textContent = newCount;
+        } else {
+          badge.style.display = "none";
+        }
+      } catch (e) {
+        console.error('Error marking report as viewed:', e);
+      }
+    }
   }
 
   window.closeViewer = function closeViewer() {

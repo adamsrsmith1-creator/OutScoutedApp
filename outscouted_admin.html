@@ -534,7 +534,7 @@
             <label>Report Title</label>
             <input type="text" id="sendTitle" placeholder="e.g. Westside HS — Opponent Scouting Report">
           </div>
-          <div class="field-row">
+          <div class="field-row" id="opponentDateRow">
             <div class="field">
               <label>Opponent / Team Name</label>
               <input type="text" id="sendOpponent" placeholder="e.g. Westside HS">
@@ -751,6 +751,8 @@
     document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
     el.classList.add('active');
     _reportType = type;
+    const row = document.getElementById('opponentDateRow');
+    if (row) row.style.display = type === 'self' ? 'none' : '';
   }
 
   // ── CHAR COUNT ──
