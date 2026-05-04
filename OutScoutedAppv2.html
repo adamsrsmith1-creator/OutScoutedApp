@@ -1860,23 +1860,24 @@ RULES: X=0, strip # from jersey, IP as string e.g. "4.0", omit TEAM totals row, 
     // Validate SB/CS using per-player detail when available
     const validateSBCS = (side, sbTotal, csTotal, sbDetail, csDetail, lineup) => {
       const lineupNames = new Set((lineup||[]).map(p => p.name?.toLowerCase()).filter(Boolean));
+      let sb = sbTotal, cs = csTotal;
       // Cross-check detail totals against reported totals
       const sbDetailSum = Object.values(sbDetail||{}).reduce((s,v) => s + (v||0), 0);
       const csDetailSum = Object.values(csDetail||{}).reduce((s,v) => s + (v||0), 0);
       if (sbDetail && Object.keys(sbDetail).length > 0 && sbDetailSum !== sbTotal) {
         dbgWarn(`[SB/CS FIX] ${side} SB total ${sbTotal} != detail sum ${sbDetailSum} — using detail sum`);
-        return { sb: sbDetailSum, cs: csTotal };
+        sb = sbDetailSum;
       }
       if (csDetail && Object.keys(csDetail).length > 0 && csDetailSum !== csTotal) {
         dbgWarn(`[SB/CS FIX] ${side} CS total ${csTotal} != detail sum ${csDetailSum} — using detail sum`);
-        return { sb: sbTotal, cs: csDetailSum };
+        cs = csDetailSum;
       }
       // Sanity: if CS > 0 but no CS detail and SB detail matches CS total, Claude probably put SB data in CS
-      if (csTotal > 0 && (!csDetail || Object.keys(csDetail).length === 0) && sbTotal === csTotal) {
-        dbgWarn(`[SB/CS FIX] ${side} CS=${csTotal} matches SB=${sbTotal} with no CS detail — likely duplicated. Setting CS=0`);
-        return { sb: sbTotal, cs: 0 };
+      if (cs > 0 && (!csDetail || Object.keys(csDetail).length === 0) && sb === cs) {
+        dbgWarn(`[SB/CS FIX] ${side} CS=${cs} matches SB=${sb} with no CS detail — likely duplicated. Setting CS=0`);
+        cs = 0;
       }
-      return { sb: sbTotal, cs: csTotal };
+      return { sb, cs };
     };
     const awayFix = validateSBCS('away', result.awaySB||0, result.awayCS||0, result.awaySBDetail, result.awayCSDetail, result.awayLineup);
     const homeFix = validateSBCS('home', result.homeSB||0, result.homeCS||0, result.homeSBDetail, result.homeCSDetail, result.homeLineup);
