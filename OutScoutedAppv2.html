@@ -1608,6 +1608,10 @@ function checkReady() {
 
 function removeFile(i) { uploadedFiles.splice(i,1); renderFileList(); checkReady(); }
 function fmtSize(b) { return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB'; }
+function teamMatches(teamName, scoutLower) {
+  const t = (teamName || '').toLowerCase();
+  return t.length > 0 && scoutLower.length > 0 && (t.includes(scoutLower) || scoutLower.includes(t));
+}
 function renderFileList() {
   const c = document.getElementById('fileList');
   if (!uploadedFiles.length) { c.innerHTML=''; return; }
@@ -1951,8 +1955,10 @@ function mergeBoxScorePitching(gameBoxScores, pitchers, scoutTeamName) {
   const boxTotals = {}; // canonKey -> { name, count, outs, h, r, er, bb, k, sb, cs }
 
   gameBoxScores.forEach(game => {
-    const awayScore2 = (game.awayTeam?.toLowerCase()||'') === scoutLower ? 2 : ((game.awayTeam?.toLowerCase()||'').includes(scoutLower)||scoutLower.includes(game.awayTeam?.toLowerCase()||'')) ? 1 : 0;
-    const homeScore2 = (game.homeTeam?.toLowerCase()||'') === scoutLower ? 2 : ((game.homeTeam?.toLowerCase()||'').includes(scoutLower)||scoutLower.includes(game.homeTeam?.toLowerCase()||'')) ? 1 : 0;
+    const awayLower2 = (game.awayTeam || '').toLowerCase();
+    const homeLower2 = (game.homeTeam || '').toLowerCase();
+    const awayScore2 = awayLower2 === scoutLower ? 2 : (awayLower2.length > 0 && teamMatches(game.awayTeam, scoutLower)) ? 1 : 0;
+    const homeScore2 = homeLower2 === scoutLower ? 2 : (homeLower2.length > 0 && teamMatches(game.homeTeam, scoutLower)) ? 1 : 0;
     const awayMatch = awayScore2 >= homeScore2 && (awayScore2 > 0 || homeScore2 > 0);
     const pitching = awayMatch ? game.awayPitching : game.homePitching;
     if (!pitching) return;
@@ -2065,8 +2071,8 @@ function mergeBoxScorePositions(gameBoxScores, fieldingData, scoutTeamName) {
     const awayLower = game.awayTeam?.toLowerCase() || '';
     const homeLower = game.homeTeam?.toLowerCase() || '';
     // Score each side by match quality — prefer exact match over substring
-    const awayScore = awayLower === scoutLower ? 2 : (awayLower.includes(scoutLower) || scoutLower.includes(awayLower)) ? 1 : 0;
-    const homeScore = homeLower === scoutLower ? 2 : (homeLower.includes(scoutLower) || scoutLower.includes(homeLower)) ? 1 : 0;
+    const awayScore = awayLower === scoutLower ? 2 : (awayLower.length > 0 && teamMatches(game.awayTeam, scoutLower)) ? 1 : 0;
+    const homeScore = homeLower === scoutLower ? 2 : (homeLower.length > 0 && teamMatches(game.homeTeam, scoutLower)) ? 1 : 0;
     if (!awayScore && !homeScore) return;
     const awayMatch = awayScore >= homeScore; // away wins ties (consistent with rest of app)
     const homeMatch = !awayMatch;
@@ -2112,8 +2118,8 @@ function mergeBoxScoreSBCS(gameBoxScores, batters, scoutTeamName) {
   gameBoxScores.forEach(game => {
     const awayLower = game.awayTeam?.toLowerCase() || '';
     const homeLower = game.homeTeam?.toLowerCase() || '';
-    const awayScore = awayLower === scoutLower ? 2 : (awayLower.includes(scoutLower) || scoutLower.includes(awayLower)) ? 1 : 0;
-    const homeScore = homeLower === scoutLower ? 2 : (homeLower.includes(scoutLower) || scoutLower.includes(homeLower)) ? 1 : 0;
+    const awayScore = awayLower === scoutLower ? 2 : (awayLower.length > 0 && teamMatches(game.awayTeam, scoutLower)) ? 1 : 0;
+    const homeScore = homeLower === scoutLower ? 2 : (homeLower.length > 0 && teamMatches(game.homeTeam, scoutLower)) ? 1 : 0;
     if (!awayScore && !homeScore) return;
     const isAway = awayScore >= homeScore;
     const sbDetail = isAway ? (game.awaySBDetail || {}) : (game.homeSBDetail || {});
@@ -3279,8 +3285,8 @@ function generateLineupFromBoxScores() {
   const tally = {};
 
   boxScoreData.forEach(game => {
-    const awayMatch = game.awayTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.awayTeam?.toLowerCase() || '');
-    const homeMatch = game.homeTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.homeTeam?.toLowerCase() || '');
+    const awayMatch = teamMatches(game.awayTeam, scoutLower);
+    const homeMatch = teamMatches(game.homeTeam, scoutLower);
     const lineup = awayMatch ? game.awayLineup : homeMatch ? game.homeLineup : null;
     if (!lineup) return;
 
@@ -3380,8 +3386,8 @@ async function handleLastStartUpload(files) {
     const result = await parseBoxScoreImage(lastStartFile);
     // Determine which side is the scouted team
     const scoutLower = scoutTeamName.toLowerCase();
-    const awayMatch = result.awayTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(result.awayTeam?.toLowerCase() || '');
-    const homeMatch = result.homeTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(result.homeTeam?.toLowerCase() || '');
+    const awayMatch = teamMatches(result.awayTeam, scoutLower);
+    const homeMatch = teamMatches(result.homeTeam, scoutLower);
     const lineup = awayMatch ? result.awayLineup : homeMatch ? result.homeLineup : null;
 
     if (!lineup || !lineup.length) {
@@ -4051,8 +4057,8 @@ function renderScoutReport(batters, pitchers, lineupData, fieldingData) {
   const boxErrorMap = {}; // canonKey -> { name, errors }
   const scoutLower = team.toLowerCase();
   boxScoreData.forEach(game => {
-    const awayMatch = game.awayTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.awayTeam?.toLowerCase()||'');
-    const homeMatch = game.homeTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.homeTeam?.toLowerCase()||'');
+    const awayMatch = teamMatches(game.awayTeam, scoutLower);
+    const homeMatch = teamMatches(game.homeTeam, scoutLower);
     const lineup = awayMatch ? game.awayLineup : homeMatch ? game.homeLineup : null;
     if (!lineup) return;
     lineup.forEach(player => {
@@ -4390,8 +4396,8 @@ function renderPlayerCards(tb, boxScoreData, scoutTeamName, veloData, hasVelo, p
   const jerseyMap = {};
   const scoutLower = scoutTeamName.toLowerCase();
   boxScoreData.forEach(game => {
-    const awayMatch = game.awayTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.awayTeam?.toLowerCase()||'');
-    const homeMatch = game.homeTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.homeTeam?.toLowerCase()||'');
+    const awayMatch = teamMatches(game.awayTeam, scoutLower);
+    const homeMatch = teamMatches(game.homeTeam, scoutLower);
     const lineup = awayMatch ? game.awayLineup : homeMatch ? game.homeLineup : null;
     if (!lineup) return;
     lineup.forEach(pl => {
@@ -4935,8 +4941,8 @@ function generatePDFReport() {
   const scoutLower = teamName.toLowerCase();
   const jerseyMap = {};
   boxScoreData.forEach(game => {
-    const awayMatch = game.awayTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.awayTeam?.toLowerCase()||'');
-    const homeMatch = game.homeTeam?.toLowerCase().includes(scoutLower) || scoutLower.includes(game.homeTeam?.toLowerCase()||'');
+    const awayMatch = teamMatches(game.awayTeam, scoutLower);
+    const homeMatch = teamMatches(game.homeTeam, scoutLower);
     const lineup = awayMatch ? game.awayLineup : homeMatch ? game.homeLineup : null;
     if (!lineup) return;
     lineup.forEach(pl => {
