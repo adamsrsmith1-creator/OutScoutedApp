@@ -1739,12 +1739,12 @@ async function parseBoxScoreImage(imageFile) {
   const prompt = `Parse this GameChanger baseball box score. Return ONLY valid JSON, no markdown, no explanation.
 
 The page has two team sections. Return exactly this structure:
-{"awayTeam":"","homeTeam":"","awayLineup":[{"jersey":"","name":"","position":"","ab":0,"r":0,"h":0,"rbi":0,"bb":0,"so":0}],"homeLineup":[{"jersey":"","name":"","position":"","ab":0,"r":0,"h":0,"rbi":0,"bb":0,"so":0}],"awayPitching":[{"name":"","ip":"","h":0,"r":0,"er":0,"bb":0,"so":0}],"homePitching":[{"name":"","ip":"","h":0,"r":0,"er":0,"bb":0,"so":0}],"awayErrors":{"PlayerName":1},"homeErrors":{"PlayerName":1},"awaySB":0,"awayCS":0,"homeSB":0,"homeCS":0,"awaySBDetail":{"PlayerName":1},"awayCSDetail":{"PlayerName":1},"homeSBDetail":{"PlayerName":1},"homeCSDetail":{"PlayerName":1}}
+{"awayTeam":"","homeTeam":"","awayLineup":[{"jersey":"","name":"","position":"","ab":0,"r":0,"h":0,"rbi":0,"bb":0,"so":0,"starter":true}],"homeLineup":[{"jersey":"","name":"","position":"","ab":0,"r":0,"h":0,"rbi":0,"bb":0,"so":0,"starter":true}],"awayPitching":[{"name":"","ip":"","h":0,"r":0,"er":0,"bb":0,"so":0}],"homePitching":[{"name":"","ip":"","h":0,"r":0,"er":0,"bb":0,"so":0}],"awayErrors":{"PlayerName":1},"homeErrors":{"PlayerName":1},"awaySB":0,"awayCS":0,"homeSB":0,"homeCS":0,"awaySBDetail":{"PlayerName":1},"awayCSDetail":{"PlayerName":1},"homeSBDetail":{"PlayerName":1},"homeCSDetail":{"PlayerName":1}}
 
 LINEUP ROW FORMATS:
-1. "Nathan Johnston #7 (SS, P)" -> jersey:"7", name:"Nathan Johnston", position:"SS"
-2. "#7 (SS)" -> jersey:"7", name:"", position:"SS"
-3. Indented rows are subs, include them
+1. "Nathan Johnston #7 (SS, P)" -> jersey:"7", name:"Nathan Johnston", position:"SS", starter:true
+2. "#7 (SS)" -> jersey:"7", name:"", position:"SS", starter:true
+3. Indented rows are substitutes/pinch hitters — include them but set starter:false
 PITCHING: "Brady Blackwell #8 (W)" -> name:"Brady Blackwell"; "#5 (L)" -> name:"", jersey:"5"
 ERRORS: In the NOTES section below each team's lineup (NOT the pitching section), find ONLY the single line that begins exactly with "E:" followed by player names. This line lists fielding errors only. Example: "E: Nathan Johnston 2, Aidan Humbard" -> {"Nathan Johnston":2,"Aidan Humbard":1}. Rules: if no number after name, count=1; if jersey only like "#1", use "#1" as key. CRITICAL SANITY CHECK: The number after a player name in the E: line is how many errors they committed — this will almost always be 1, occasionally 2, and very rarely 3. If you see a number like 5, 10, 11, 20 next to a name, you have NOT found the E: line — you have found a pitching stat line (like "R" or "ER") by mistake. Discard it and return {}. Do NOT read "WP:", "HBP:", "SB:", "TB:", "SF:", "CS:", "2B:", "3B:", "HR:", or any pitching stat table rows. If you cannot find a line starting with exactly "E:", return {}.
 STOLEN BASES & CAUGHT STEALING:
@@ -2014,6 +2014,79 @@ function mergeBoxScorePitching(gameBoxScores, pitchers, scoutTeamName) {
       }
     }
   });
+
+  // ── Fuzzy deduplication of pitcher names across box scores ──
+  // AI parsing can produce slight name variations across games (e.g. "Gunner Frazier" vs
+  // "Gunner Frazer", "Andrew Matthew" vs "Andrew Matthews", or single-name entries like
+  // "Hunter" that should merge with "Hunter Oates").
+  (function deduplicatePitchers() {
+    function editDist(a, b) {
+      if (a === b) return 0;
+      const m = a.length, n = b.length;
+      const dp = Array.from({length: m+1}, () => new Array(n+1).fill(0));
+      for (let i = 0; i <= m; i++) dp[i][0] = i;
+      for (let j = 0; j <= n; j++) dp[0][j] = j;
+      for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+          dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      return dp[m][n];
+    }
+
+    function shouldMerge(nameA, nameB) {
+      const partsA = nameA.trim().split(/\s+/);
+      const partsB = nameB.trim().split(/\s+/);
+      const lastA = partsA[partsA.length - 1].toLowerCase();
+      const lastB = partsB[partsB.length - 1].toLowerCase();
+      const firstA = partsA[0].toLowerCase();
+      const firstB = partsB[0].toLowerCase();
+
+      // Single-word name matching first or last name of a multi-word name
+      if (partsA.length === 1 && partsB.length >= 2) {
+        return editDist(firstA, firstB) <= 1 || editDist(firstA, lastB) <= 1;
+      }
+      if (partsB.length === 1 && partsA.length >= 2) {
+        return editDist(firstB, firstA) <= 1 || editDist(firstB, lastA) <= 1;
+      }
+
+      // Both multi-word: same first initial + similar last name
+      if (partsA.length >= 2 && partsB.length >= 2) {
+        if (firstA[0] !== firstB[0]) return false;
+        const maxLen = Math.max(lastA.length, lastB.length);
+        const threshold = maxLen <= 5 ? 1 : 2;
+        return editDist(lastA, lastB) <= threshold;
+      }
+
+      // Both single-word: merge if very close
+      return editDist(firstA, firstB) <= 1;
+    }
+
+    const keys = Object.keys(boxTotals);
+    const merged = new Set();
+    for (let i = 0; i < keys.length; i++) {
+      if (merged.has(keys[i])) continue;
+      for (let j = i + 1; j < keys.length; j++) {
+        if (merged.has(keys[j])) continue;
+        const a = boxTotals[keys[i]], b = boxTotals[keys[j]];
+        if (shouldMerge(a.name, b.name)) {
+          // Merge b into a — keep the longer/more complete display name
+          if (b.name.length > a.name.length) a.name = b.name;
+          a.count += b.count;
+          a.outs  += b.outs;
+          a.h     += b.h;
+          a.r     += b.r;
+          a.er    += b.er;
+          a.bb    += b.bb;
+          a.k     += b.k;
+          a.sb    += b.sb;
+          a.cs    += b.cs;
+          merged.add(keys[j]);
+          dbg(`[pitcher dedup] Merged "${b.name}" into "${a.name}"`);
+        }
+      }
+    }
+    merged.forEach(k => delete boxTotals[k]);
+    if (merged.size) dbg(`[pitcher dedup] Merged ${merged.size} duplicate entries`);
+  })();
 
   // Save play-by-play sb/cs per pitcher (by canon key) before clearing
   const totalBoxSB = Object.values(boxTotals).reduce((s, p) => s + p.sb, 0);
@@ -3290,12 +3363,10 @@ function generateLineupFromBoxScores() {
     const lineup = awayMatch ? game.awayLineup : homeMatch ? game.homeLineup : null;
     if (!lineup) return;
 
-    // Only use the first 9 non-substitute slots as the batting order.
-    // GameChanger lists starters first; substitutes are indented but still in the array.
-    // We treat positional order in the array as batting order slot.
+    // Only use starters (not pinch hitters/substitutes) for the batting order.
     let slot = 1;
     lineup.forEach(player => {
-      if (!player.name || slot > 9) return;
+      if (!player.name || slot > 9 || player.starter === false) return;
       const name = player.name;
       if (!tally[name]) tally[name] = { slotCounts: {}, posCounts: {}, games: 0 };
       tally[name].slotCounts[slot] = (tally[name].slotCounts[slot] || 0) + 1;
@@ -3395,11 +3466,14 @@ async function handleLastStartUpload(files) {
       return;
     }
 
-    // Fill the lineup rows with the first 9 starters
+    // Filter out pinch hitters/substitutes — only use starters
+    const starters = lineup.filter(p => p.starter !== false && p.name);
+
+    // Fill the lineup rows with the starters (up to 9)
     buildLineupRows();
     let slot = 1;
-    lineup.forEach(player => {
-      if (!player.name || slot > 9) return;
+    starters.forEach(player => {
+      if (slot > 9) return;
       const nameEl = document.getElementById(`lineup_name_${slot}`);
       const posEl = document.getElementById(`lineup_pos_${slot}`);
       if (nameEl) nameEl.value = player.name;
@@ -3407,8 +3481,29 @@ async function handleLastStartUpload(files) {
       slot++;
     });
 
+    // Auto-fill projected pitching staff from the box score
+    const pitching = awayMatch ? result.awayPitching : result.homePitching;
+    if (pitching && pitching.length) {
+      // First pitcher is the starter
+      if (pitching[0]?.name) {
+        const starterInput = document.getElementById('projStarter');
+        if (starterInput) starterInput.value = pitching[0].name;
+      }
+      // Second pitcher is reliever 1
+      if (pitching.length > 1 && pitching[1]?.name) {
+        const rel1Input = document.getElementById('projRel1');
+        if (rel1Input) rel1Input.value = pitching[1].name;
+      }
+      // Third pitcher is reliever 2
+      if (pitching.length > 2 && pitching[2]?.name) {
+        const rel2Input = document.getElementById('projRel2');
+        if (rel2Input) rel2Input.value = pitching[2].name;
+      }
+    }
+
+    const pitcherCount = pitching ? Math.min(pitching.length, 3) : 0;
     document.getElementById('lineupSourcePill').textContent = "from pitcher's last start";
-    statusEl.innerHTML = `<span style="color:var(--success);">Lineup loaded from ${awayMatch ? result.awayTeam : result.homeTeam} box score (${slot - 1} players)</span>`;
+    statusEl.innerHTML = `<span style="color:var(--success);">Lineup loaded from ${awayMatch ? result.awayTeam : result.homeTeam} box score (${slot - 1} batters, ${pitcherCount} pitchers)</span>`;
   } catch (err) {
     statusEl.innerHTML = `<span style="color:var(--danger);">Error parsing: ${err.message}</span>`;
   }
