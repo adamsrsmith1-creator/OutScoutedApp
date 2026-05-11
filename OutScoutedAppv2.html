@@ -2092,6 +2092,52 @@ function mergeBoxScorePitching(gameBoxScores, pitchers, scoutTeamName) {
   });
 }
 
+// After PBP parsing + box score position merging, assign uncredited steal events
+// to the primary catcher. This handles games where the catcher was never mentioned
+// in the play-by-play text — pitcher SB/CS are tracked but the catcher got no credit.
+function reconcileCatcherSBCS(batters, pitchers, fieldingData, scoutTeamName) {
+  const scoutLower = scoutTeamName.toLowerCase();
+  const teamKey = Object.keys(batters).find(t => t.toLowerCase() === scoutLower);
+  if (!teamKey) return;
+  const fdTeamKey = Object.keys(fieldingData).find(t => t.toLowerCase() === scoutLower);
+  if (!fdTeamKey) return;
+  const fd = fieldingData[fdTeamKey];
+
+  // Sum total SB and CS from all pitchers (authoritative count from PBP)
+  let totalPitcherSB = 0, totalPitcherCS = 0;
+  Object.values(pitchers).forEach(p => { totalPitcherSB += (p.sb || 0); totalPitcherCS += (p.cs || 0); });
+
+  // Sum SB/CS already credited to catchers
+  const tb = batters[teamKey];
+  let totalCatcherSB = 0, totalCatcherCS = 0;
+  Object.values(tb).forEach(b => { totalCatcherSB += (b.sb_against || 0); totalCatcherCS += (b.cs_credited || 0); });
+
+  const uncreditedSB = totalPitcherSB - totalCatcherSB;
+  const uncreditedCS = totalPitcherCS - totalCatcherCS;
+  if (uncreditedSB <= 0 && uncreditedCS <= 0) return;
+
+  // Find the primary catcher: player with most games at position C in fielding data
+  let primaryCatcher = null, maxCGames = 0;
+  for (const [name, positions] of Object.entries(fd)) {
+    const cGames = positions['C'] || 0;
+    if (cGames > maxCGames) { maxCGames = cGames; primaryCatcher = name; }
+  }
+  // If no catcher found in fielding data, try to find one from batter objects that already has CS credits
+  if (!primaryCatcher) {
+    for (const [name, stats] of Object.entries(tb)) {
+      if (stats.cs_credited > 0 || stats.sb_against > 0) { primaryCatcher = name; break; }
+    }
+  }
+  if (!primaryCatcher) return;
+
+  const cb = tb[primaryCatcher];
+  if (!cb) return;
+
+  if (uncreditedSB > 0) cb.sb_against += uncreditedSB;
+  if (uncreditedCS > 0) { cb.cs_credited += uncreditedCS; cb.sb_against += uncreditedCS; }
+  dbg(`Reconciled catcher ${primaryCatcher}: +${uncreditedSB} SB, +${uncreditedCS} CS (total: ${cb.cs_credited}/${cb.sb_against})`);
+}
+
 function mergeBoxScorePositions(gameBoxScores, fieldingData, scoutTeamName) {
   const scoutLower = scoutTeamName.toLowerCase();
   const parserTeamKey = Object.keys(fieldingData).find(t=>t.toLowerCase()===scoutLower)||'';
@@ -2783,6 +2829,31 @@ function parseGame(halfInnings, batters, pitchers, fileTeams, scoutTeamNames) {
     return null;
   }
 
+  // Pre-scan ALL half-innings for catcher mentions so we know who's catching
+  // before the first steal event occurs (handles games where catcher is first
+  // mentioned in a CS event later in the game)
+  {
+    const allLines = halfInnings.flatMap(hi => {
+      const ft = fileTeams.find(t => t !== hi.battingTeam) || null;
+      return hi.lines.map(raw => ({ raw, fieldingTeam: ft }));
+    });
+    for (const { raw, fieldingTeam: ft } of allLines) {
+      if (!ft) continue;
+      // Check for catcher mentions: "catcher FirstName LastName"
+      const catchM = raw.match(/\bcatcher\s+([A-Z][A-Za-z]* [A-Z][A-Za-z]+|[A-Z] [A-Z][A-Za-z]+)/);
+      if (catchM && isName(catchM[1]) && !lastCatcherForTeam[ft]) {
+        lastCatcherForTeam[ft] = catchM[1];
+      }
+      // Substitution: "Name in at/for catcher"
+      const catchSub2 = raw.match(/([A-Z][A-Za-z]* [A-Z][A-Za-z]+) in (?:at|for) catcher/);
+      if (catchSub2 && isName(catchSub2[1]) && !lastCatcherForTeam[ft]) {
+        lastCatcherForTeam[ft] = catchSub2[1];
+      }
+      // If we found catchers for all teams, stop scanning
+      if (fileTeams.every(t => lastCatcherForTeam[t])) break;
+    }
+  }
+
   const sorted=[...halfInnings].sort((a,b)=>{
     if(a.inning!==b.inning)return a.inning-b.inning;
     return a.half==='top'?-1:1;
@@ -2833,10 +2904,51 @@ function parseGame(halfInnings, batters, pitchers, fileTeams, scoutTeamNames) {
       }
       // Whether the fielding team is a scout team — only track pitcher/catcher SB/CS for scout team
       const isScoutFielding = scoutLowerSet.size === 0 || scoutLowerSet.has(fieldingTeam?.toLowerCase() || '');
-      // Steals: "X steals base" and "X scores on steal of home" (different GameChanger phrasings)
-      // Batter SB always tracked. Pitcher/catcher SB only tracked when fielding team is scout team.
-      {const sbRx=/\b([A-Z][A-Za-z]* [A-Z][A-Za-z]+) steals? /g;let sm;while((sm=sbRx.exec(raw))!==null){if(isName(sm[1])){const b=getBatter(battingTeam,sm[1]);if(b)b.sb++;if(isScoutFielding&&fieldingTeam){const catcherKey=lastCatcherForTeam[fieldingTeam];if(catcherKey){const cb=getBatter(fieldingTeam,catcherKey);if(cb)cb.sb_against++;}cp(pt=>pt.sb++);}}}}
-      {const sohRx=/\b([A-Z][A-Za-z]* [A-Z][A-Za-z]+) scores on steal of home/g;let sm2;while((sm2=sohRx.exec(raw))!==null){if(isName(sm2[1])){const b=getBatter(battingTeam,sm2[1]);if(b)b.sb++;if(isScoutFielding&&fieldingTeam){const catcherKey=lastCatcherForTeam[fieldingTeam];if(catcherKey){const cb=getBatter(fieldingTeam,catcherKey);if(cb)cb.sb_against++;}cp(pt=>pt.sb++);}}}}
+      // Helper: credit pitcher+catcher for a steal event
+      function creditSBToPitcherCatcher() {
+        if (!isScoutFielding || !fieldingTeam) return;
+        const catcherKey = lastCatcherForTeam[fieldingTeam];
+        if (catcherKey) { const cb = getBatter(fieldingTeam, catcherKey); if (cb) cb.sb_against++; }
+        cp(pt => pt.sb++);
+      }
+      function creditCSToPitcherCatcher(rawLine) {
+        if (!isScoutFielding) { cp(pt => { pt.outs++; pt.cs++; }); return; }
+        cp(pt => { pt.outs++; pt.cs++; });
+        const cm = rawLine.match(/\bcatcher\s+([A-Z][A-Za-z]* [A-Z][A-Za-z]+|[A-Z] [A-Z][A-Za-z]+)/);
+        if (cm && isName(cm[1]) && fieldingTeam) {
+          const cb = getBatter(fieldingTeam, cm[1]);
+          if (cb) { cb.cs_credited++; cb.sb_against++; }
+          lastCatcherForTeam[fieldingTeam] = cm[1];
+        } else if (fieldingTeam) {
+          const catcherKey = lastCatcherForTeam[fieldingTeam];
+          if (catcherKey) { const cb = getBatter(fieldingTeam, catcherKey); if (cb) { cb.cs_credited++; cb.sb_against++; } }
+        }
+      }
+      // Steals: "X steals base" — now handles one-word names (e.g. courtesy runners "Plyler steals 2nd")
+      // and nameless steals ("steals 3rd" without a runner name)
+      {
+        let sbCount = 0;
+        // Named steals: one or two word names (e.g. "Jackson Harris steals 3rd", "Plyler steals 2nd")
+        const sbRx = /\b([A-Z][A-Za-z]+(?:\s[A-Z][A-Za-z]+)?) steals? (?:2nd|3rd|home|second|third)/g;
+        let sm; while ((sm = sbRx.exec(raw)) !== null) {
+          const name = sm[1]; if (SKIP_WORDS.has(name.split(' ')[0])) continue;
+          sbCount++;
+          if (isName(name)) { const b = getBatter(battingTeam, name); if (b) b.sb++; }
+          creditSBToPitcherCatcher();
+        }
+        // "X scores on steal of home" (GameChanger phrasing for steal of home)
+        const sohRx = /\b([A-Z][A-Za-z]+(?:\s[A-Z][A-Za-z]+)?) scores on steal of home/g;
+        let sm2; while ((sm2 = sohRx.exec(raw)) !== null) {
+          const name = sm2[1]; if (SKIP_WORDS.has(name.split(' ')[0])) continue;
+          sbCount++;
+          if (isName(name)) { const b = getBatter(battingTeam, name); if (b) b.sb++; }
+          creditSBToPitcherCatcher();
+        }
+        // Nameless steals: ", steals 3rd" or "steals 2nd" at start — no runner name
+        if (sbCount === 0 && /(?:^|,\s*)steals?\s+(?:2nd|3rd|home|second|third)/i.test(raw)) {
+          creditSBToPitcherCatcher();
+        }
+      }
       // Track fielding errors from play-by-play text — always credited to the FIELDING team
       // Handles: "reaches on an error by shortstop W Stewart", "advances on error by pitcher S Boozer", etc.
       // Only counts named players (not jersey numbers like #32) since those can't be mapped reliably
@@ -2850,25 +2962,18 @@ function parseGame(halfInnings, batters, pitchers, fileTeams, scoutTeamNames) {
          }
        }
       }
-      {const csm=raw.match(/([A-Z#][A-Za-z0-9]*(?:\s[A-Za-z][A-Za-z0-9]*)?) caught stealing/);
-      if(csm){const res=resolveRunner(csm[1].trim());if(isName(res)){const b=getBatter(battingTeam,res);if(b)b.cs++;}
-        // Only credit pitcher/catcher CS when fielding team is scout team
-        if(isScoutFielding){
-          cp(pt=>{pt.outs++;pt.cs++;});
-          const cm=raw.match(/\bcatcher\s+([A-Z][A-Za-z]* [A-Z][A-Za-z]+|[A-Z] [A-Z][A-Za-z]+)/);
-          if(cm&&isName(cm[1])&&fieldingTeam){const cb=getBatter(fieldingTeam,cm[1]);if(cb){cb.cs_credited++;
-            cb.sb_against++;
-            lastCatcherForTeam[fieldingTeam]=cm[1];
-          }} else if(fieldingTeam){
-            // No catcher named in CS text — credit to the current known catcher
-            const catcherKey=lastCatcherForTeam[fieldingTeam];
-            if(catcherKey){const cb=getBatter(fieldingTeam,catcherKey);if(cb){cb.cs_credited++;cb.sb_against++;}}
-          }
-        } else {
-          // Still need to count the out for non-scout fielding team
-          cp(pt=>{pt.outs++;pt.cs++;});
+      // Caught stealing: named or nameless (excludes pickoffs — those are handled separately)
+      {
+        const csm = raw.match(/([A-Z#][A-Za-z0-9]*(?:\s[A-Za-z][A-Za-z0-9]*)?) caught stealing/);
+        const namelessCS = !csm && /(?:^|,\s*)caught stealing/i.test(raw);
+        if (csm) {
+          const res = resolveRunner(csm[1].trim());
+          if (isName(res)) { const b = getBatter(battingTeam, res); if (b) b.cs++; }
+          creditCSToPitcherCatcher(raw);
+        } else if (namelessCS) {
+          creditCSToPitcherCatcher(raw);
         }
-      }}
+      }
       if(isPitchLine(raw))return;
       if(/^(Single|Double|Triple|Home Run|Fly Out|Ground Out|Line Out|Pop Out|Strikeout|Walk|Hit By Pitch|Sacrifice|Sacrifice Bunt|Sacrifice Fly|Error|Double Play|Fielder.s Choice|Runner Out|Batter Out|Dropped 3rd Strike)$/.test(ln))return;
       const pendingPitches = pitchMap[lineIdx] || [];
@@ -3245,6 +3350,9 @@ async function processBoxScoreImages() {
 
   // Merge positions + jersey numbers from box scores into fielding data (authoritative)
   mergeBoxScorePositions(boxScoreData, parsedData.fieldingData, teamName);
+
+  // Reconcile catcher SB/CS: assign uncredited steal events to known catchers from fielding data
+  reconcileCatcherSBCS(parsedData.batters, parsedData.pitchers, parsedData.fieldingData, teamName);
 
   // Merge per-player SB/CS from box score detail into batter stats (overrides play-by-play)
   mergeBoxScoreSBCS(boxScoreData, parsedData.batters, teamName);
