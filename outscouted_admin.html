@@ -358,6 +358,82 @@
   .char-count { font-size: 0.72rem; color: var(--muted); margin-top: 0.3rem; text-align: right; }
   .char-count.has-content { color: var(--success); }
 
+  /* ── CALENDAR ── */
+  .cal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.25rem; gap: 0.75rem;
+  }
+  .cal-header-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.3rem; font-weight: 700; letter-spacing: 0.03em;
+  }
+  .cal-nav { display: flex; gap: 0.35rem; }
+  .cal-nav button {
+    background: var(--surface2); border: 1px solid var(--border2); border-radius: var(--r);
+    color: var(--text); cursor: pointer; width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center; font-size: 1rem;
+    transition: background 0.15s;
+  }
+  .cal-nav button:hover { background: var(--surface3); }
+  .cal-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    border: 1px solid var(--border); border-radius: var(--r);
+    overflow: hidden; background: var(--surface);
+  }
+  .cal-day-header {
+    background: var(--surface2); padding: 0.4rem; text-align: center;
+    font-size: 0.7rem; font-weight: 700; color: var(--muted2);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-cell {
+    min-height: 90px; padding: 0.35rem; border: 1px solid var(--border);
+    position: relative; cursor: pointer; transition: background 0.12s;
+    vertical-align: top;
+  }
+  .cal-cell:hover { background: var(--surface2); }
+  .cal-cell.other-month { opacity: 0.3; }
+  .cal-cell.today { background: var(--accent-dim); }
+  .cal-date { font-size: 0.75rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--muted2); }
+  .cal-cell.today .cal-date { color: var(--accent); }
+  .cal-event {
+    font-size: 0.65rem; padding: 0.15rem 0.3rem; border-radius: 3px;
+    margin-bottom: 0.15rem; line-height: 1.35; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cal-event.game { background: var(--accent-dim); color: var(--accent2); border-left: 2px solid var(--accent); }
+  .cal-event.due { background: var(--danger-dim); color: var(--danger); border-left: 2px solid var(--danger); }
+  .cal-event.due-today { background: var(--warning-dim); color: var(--warning); border-left: 2px solid var(--warning); }
+
+  /* Calendar modal */
+  .cal-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cal-modal {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 1.5rem; width: 360px; max-width: 92vw;
+  }
+  .cal-modal h3 {
+    font-family: 'Barlow Condensed', sans-serif; font-size: 1.15rem;
+    font-weight: 700; margin-bottom: 1rem; color: var(--accent);
+  }
+  .cal-modal .field { margin-bottom: 0.75rem; }
+  .cal-modal .field label { display: block; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; color: var(--muted2); }
+  .cal-modal .field input, .cal-modal .field select {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: var(--r); color: var(--text); font-size: 0.85rem;
+    padding: 0.5rem 0.6rem; outline: none; font-family: 'Barlow', sans-serif;
+  }
+  .cal-modal .field input:focus, .cal-modal .field select:focus { border-color: var(--accent); }
+  .cal-modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; justify-content: flex-end; }
+
+  .cal-legend { display: flex; gap: 1.25rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .cal-legend-item { display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--muted2); }
+  .cal-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .cal-legend-swatch.game { background: var(--accent); }
+  .cal-legend-swatch.due { background: var(--danger); }
+
   /* ── RESPONSIVE ── */
   .sidebar-overlay {
     display: none;
@@ -456,6 +532,10 @@
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
       Sent Reports
     </button>
+    <button class="nav-item" onclick="switchView('calendar')" id="nav-calendar">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Calendar
+    </button>
     <button class="nav-item" onclick="switchView('demos')" id="nav-demos">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
       Demo Requests
@@ -511,6 +591,20 @@
           <div class="empty-state" style="border:none;">
             <div class="empty-title">No Pending Requests</div>
             <p class="empty-sub">Pro user report requests will appear here.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- UPCOMING DUE DATES QUICK VIEW -->
+      <div class="table-wrap" id="overviewDueDatesWrap">
+        <div class="table-header">
+          <div class="table-title">Upcoming Report Due Dates</div>
+          <button class="btn btn-ghost btn-sm" onclick="switchView('calendar')">View Calendar</button>
+        </div>
+        <div id="overviewDueDates">
+          <div class="empty-state" style="border:none; padding: 1.5rem;">
+            <div class="empty-title">No Upcoming Due Dates</div>
+            <p class="empty-sub">Add games to the calendar to see report due dates here.</p>
           </div>
         </div>
       </div>
@@ -652,6 +746,66 @@
       </div>
     </div>
 
+    <!-- CALENDAR -->
+    <div class="view" id="view-calendar">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">Report Calendar</div>
+          <div class="page-sub">Team schedules and report due dates. Due dates are the afternoon before game day.</div>
+        </div>
+        <button class="btn btn-primary" onclick="openAddGameModal()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          Add Game
+        </button>
+      </div>
+      <div class="cal-legend">
+        <div class="cal-legend-item"><div class="cal-legend-swatch game"></div> Game Day</div>
+        <div class="cal-legend-item"><div class="cal-legend-swatch due"></div> Report Due</div>
+      </div>
+      <div class="cal-header">
+        <div class="cal-nav">
+          <button onclick="calNav(-1)" title="Previous month">&#8249;</button>
+          <button onclick="calNav(1)" title="Next month">&#8250;</button>
+        </div>
+        <div class="cal-header-title" id="calMonthLabel"></div>
+        <button class="btn btn-ghost btn-sm" onclick="calToday()">Today</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+
+    <!-- Calendar modal (add/edit game) -->
+    <div class="cal-modal-overlay" id="calModalOverlay" style="display:none;" onclick="if(event.target===this)closeCalModal()">
+      <div class="cal-modal">
+        <h3 id="calModalTitle">Add Game</h3>
+        <div class="field">
+          <label>Team</label>
+          <select id="calGameTeam" onchange="document.getElementById('calGameTeamCustom').style.display=this.value==='__custom__'?'block':'none'"></select>
+          <input type="text" id="calGameTeamCustom" placeholder="Enter team name" style="display:none;margin-top:0.4rem;width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.85rem;padding:0.5rem 0.6rem;outline:none;font-family:'Barlow',sans-serif;">
+        </div>
+        <div class="field">
+          <label>Opponent</label>
+          <input type="text" id="calGameOpponent" placeholder="e.g. Westside High">
+        </div>
+        <div class="field">
+          <label>Game Date</label>
+          <input type="date" id="calGameDate">
+        </div>
+        <div class="field">
+          <label>Game Time (optional)</label>
+          <input type="time" id="calGameTime">
+        </div>
+        <div class="field">
+          <label>Location (optional)</label>
+          <input type="text" id="calGameLocation" placeholder="e.g. Home Field">
+        </div>
+        <div class="cal-modal-actions">
+          <button class="btn btn-ghost btn-sm" onclick="closeCalModal()">Cancel</button>
+          <button class="btn btn-danger btn-sm" id="calDeleteBtn" onclick="deleteGame()" style="display:none;">Delete</button>
+          <button class="btn btn-primary btn-sm" id="calSaveBtn" onclick="saveGame()">Save Game</button>
+        </div>
+      </div>
+    </div>
+
     <!-- DEMO REQUESTS -->
     <div class="view" id="view-demos">
       <div class="page-header">
@@ -679,7 +833,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import {
-    getFirestore, collection, getDocs, addDoc, updateDoc,
+    getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc,
     doc, query, orderBy, where, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -703,7 +857,7 @@
 
     window._db = db;
     window._auth = auth;
-    window._fns = { collection, getDocs, addDoc, updateDoc, doc, query, orderBy, where, serverTimestamp };
+    window._fns = { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where, serverTimestamp };
 
     await loadAll();
     document.getElementById("loadingScreen").style.display = "none";
@@ -723,6 +877,9 @@
   let _allRequests = [];
   let _allReports = [];
   let _allDemos = [];
+  let _allGames = [];
+  let _calYear, _calMonth;
+  let _editingGameId = null;
 
   // ── VIEW SWITCHING ──
   function switchView(view) {
@@ -797,6 +954,13 @@
         demoSnap.forEach(d => _allDemos.push({ id: d.id, ...d.data() }));
       } catch(e) { _allDemos = []; }
 
+      // Load schedule (games)
+      try {
+        const gameSnap = await getDocs(query(collection(db, 'schedule'), orderBy('gameDate', 'asc')));
+        _allGames = [];
+        gameSnap.forEach(d => _allGames.push({ id: d.id, ...d.data() }));
+      } catch(e) { _allGames = []; }
+
       renderAll();
     } catch (e) {
       console.error('Error loading data:', e);
@@ -810,6 +974,7 @@
     renderReports();
     renderDemos();
     populateUserDropdown();
+    renderCalendar();
   }
 
   // ── STATS ──
@@ -831,6 +996,37 @@
     if (_allUsers.length > 0) {
       document.getElementById('usersBadge').style.display = 'inline';
       document.getElementById('usersBadge').textContent = _allUsers.length;
+    }
+
+    // Upcoming due dates on overview
+    const nowLocal = new Date();
+    const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}`;
+    const upcoming = _allGames
+      .filter(g => g.gameDate)
+      .map(g => ({ ...g, dueDate: getDueDate(g.gameDate) }))
+      .filter(g => g.dueDate >= today)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .slice(0, 5);
+
+    const ddContainer = document.getElementById('overviewDueDates');
+    if (upcoming.length) {
+      ddContainer.innerHTML = `<table>
+        <thead><tr><th>Team</th><th>Opponent</th><th>Game Date</th><th>Report Due</th></tr></thead>
+        <tbody>${upcoming.map(g => {
+          const isUrgent = g.dueDate === today;
+          return `<tr>
+            <td style="font-weight:600;">${escapeHtml(g.team)}</td>
+            <td>${escapeHtml(g.opponent)}</td>
+            <td style="color:var(--muted2);">${g.gameDate}</td>
+            <td style="color:${isUrgent ? 'var(--warning)' : 'var(--danger)'};font-weight:${isUrgent ? '700' : '500'};">${g.dueDate}${isUrgent ? ' (TODAY)' : ''}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    } else {
+      ddContainer.innerHTML = `<div class="empty-state" style="border:none; padding: 1.5rem;">
+        <div class="empty-title">No Upcoming Due Dates</div>
+        <p class="empty-sub">Add games to the calendar to see report due dates here.</p>
+      </div>`;
     }
   }
 
@@ -913,6 +1109,8 @@
     const teamNames = Object.keys(teams).sort();
 
     function userRow(u) {
+      const gcLink = u.gameChangerLink || '';
+      const gcSafe = gcLink && safeUrl(gcLink) ? safeUrl(gcLink) : '';
       return `<tr>
           <td style="font-weight:600;">${u.name || '—'}</td>
           <td style="color:var(--muted2);">${u.email}</td>
@@ -922,6 +1120,7 @@
               onchange="setTeam('${u.id}', this.value)"
               style="width:120px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.8rem;padding:0.25rem 0.5rem;outline:none;">
           </td>
+          <td style="font-size:0.8rem;">${gcSafe ? `<a href="${escapeHtml(gcSafe)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">View</a>` : '<span style="color:var(--muted);">—</span>'}</td>
           <td>${userReportCounts[u.id] || 0}</td>
           <td style="color:var(--muted2);">${u.createdAt?.toDate ? u.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</td>
           <td>
@@ -938,7 +1137,7 @@
 
     let tableBody = '';
     teamNames.forEach(team => {
-      tableBody += `<tr><td colspan="7" style="background:var(--surface2);padding:0.5rem 0.75rem;font-weight:700;font-size:0.8rem;letter-spacing:0.05em;color:var(--accent);border-bottom:2px solid var(--accent-dim);">
+      tableBody += `<tr><td colspan="8" style="background:var(--surface2);padding:0.5rem 0.75rem;font-weight:700;font-size:0.8rem;letter-spacing:0.05em;color:var(--accent);border-bottom:2px solid var(--accent-dim);">
         ⚾ ${escapeHtml(team)}
         <button class="btn btn-ghost btn-sm" style="margin-left:0.75rem;font-size:0.7rem;" onclick="sendToTeam('${escapeHtml(escapeJsString(team))}')">Send Report to Team</button>
       </td></tr>`;
@@ -946,14 +1145,14 @@
     });
     if (noTeam.length) {
       if (teamNames.length) {
-        tableBody += `<tr><td colspan="7" style="background:var(--surface2);padding:0.5rem 0.75rem;font-weight:700;font-size:0.8rem;letter-spacing:0.05em;color:var(--muted);border-bottom:2px solid var(--border);">No Team Assigned</td></tr>`;
+        tableBody += `<tr><td colspan="8" style="background:var(--surface2);padding:0.5rem 0.75rem;font-weight:700;font-size:0.8rem;letter-spacing:0.05em;color:var(--muted);border-bottom:2px solid var(--border);">No Team Assigned</td></tr>`;
       }
       noTeam.forEach(u => { tableBody += userRow(u); });
     }
 
     container.innerHTML = `<table>
       <thead><tr>
-        <th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Reports</th><th>Joined</th><th>Actions</th>
+        <th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>GameChanger</th><th>Reports</th><th>Joined</th><th>Actions</th>
       </tr></thead>
       <tbody>${tableBody}</tbody>
     </table>`;
@@ -1251,6 +1450,212 @@
     btn.disabled = loading;
     spinner.style.display = loading ? 'block' : 'none';
     label.textContent = loading ? 'Sending...' : 'Send Report to User';
+  }
+
+  // ═══════════════════════════════════
+  // ── CALENDAR FUNCTIONS ──
+  // ═══════════════════════════════════
+
+  function initCalendar() {
+    const now = new Date();
+    _calYear = now.getFullYear();
+    _calMonth = now.getMonth();
+  }
+  initCalendar();
+
+  function calNav(delta) {
+    _calMonth += delta;
+    if (_calMonth > 11) { _calMonth = 0; _calYear++; }
+    if (_calMonth < 0) { _calMonth = 11; _calYear--; }
+    renderCalendar();
+  }
+
+  function calToday() {
+    const now = new Date();
+    _calYear = now.getFullYear();
+    _calMonth = now.getMonth();
+    renderCalendar();
+  }
+
+  function getDueDate(gameDateStr) {
+    const parts = gameDateStr.split('-');
+    const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function renderCalendar() {
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    document.getElementById('calMonthLabel').textContent = months[_calMonth] + ' ' + _calYear;
+
+    const grid = document.getElementById('calGrid');
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let html = dayNames.map(d => `<div class="cal-day-header">${d}</div>`).join('');
+
+    const firstDay = new Date(_calYear, _calMonth, 1).getDay();
+    const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
+    const prevMonthDays = new Date(_calYear, _calMonth, 0).getDate();
+
+    const now = new Date(); const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+
+    // Build event lookup: dateStr -> [{type, label, game}]
+    const events = {};
+    _allGames.forEach(g => {
+      if (!g.gameDate) return;
+      const gd = g.gameDate;
+      if (!events[gd]) events[gd] = [];
+      events[gd].push({ type: 'game', label: `${g.team} vs ${g.opponent}`, game: g });
+      const dd = getDueDate(gd);
+      if (!events[dd]) events[dd] = [];
+      events[dd].push({ type: 'due', label: `Due: ${g.team} vs ${g.opponent}`, game: g });
+    });
+
+    // Previous month fill
+    for (let i = firstDay - 1; i >= 0; i--) {
+      const day = prevMonthDays - i;
+      html += `<div class="cal-cell other-month"><div class="cal-date">${day}</div></div>`;
+    }
+
+    // Current month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${_calYear}-${String(_calMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const isToday = dateStr === todayStr;
+      const dayEvents = events[dateStr] || [];
+
+      let eventsHtml = '';
+      dayEvents.forEach(ev => {
+        const cls = ev.type === 'game' ? 'game' : (dateStr === todayStr ? 'due-today' : 'due');
+        const icon = ev.type === 'game' ? '⚾' : '📋';
+        eventsHtml += `<div class="cal-event ${cls}" onclick="event.stopPropagation();openEditGameModal('${ev.game.id}')" title="${escapeHtml(ev.label)}">${icon} ${escapeHtml(ev.label)}</div>`;
+      });
+
+      html += `<div class="cal-cell${isToday ? ' today' : ''}" onclick="openAddGameModal('${dateStr}')">
+        <div class="cal-date">${day}</div>
+        ${eventsHtml}
+      </div>`;
+    }
+
+    // Next month fill
+    const totalCells = firstDay + daysInMonth;
+    const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+    for (let i = 1; i <= remaining; i++) {
+      html += `<div class="cal-cell other-month"><div class="cal-date">${i}</div></div>`;
+    }
+
+    grid.innerHTML = html;
+  }
+
+  function populateTeamDropdown() {
+    const sel = document.getElementById('calGameTeam');
+    const teams = new Set();
+    _allUsers.forEach(u => { if (u.team) teams.add(u.team); });
+    sel.innerHTML = '<option value="">— Select Team —</option>';
+    Array.from(teams).sort().forEach(t => {
+      sel.innerHTML += `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`;
+    });
+    // Allow custom team name entry
+    sel.innerHTML += '<option value="__custom__">Other (type below)...</option>';
+  }
+
+  function openAddGameModal(dateStr) {
+    _editingGameId = null;
+    document.getElementById('calModalTitle').textContent = 'Add Game';
+    document.getElementById('calDeleteBtn').style.display = 'none';
+    document.getElementById('calSaveBtn').textContent = 'Save Game';
+    populateTeamDropdown();
+    document.getElementById('calGameTeam').value = '';
+    document.getElementById('calGameTeamCustom').value = '';
+    document.getElementById('calGameTeamCustom').style.display = 'none';
+    document.getElementById('calGameOpponent').value = '';
+    document.getElementById('calGameDate').value = dateStr || '';
+    document.getElementById('calGameTime').value = '';
+    document.getElementById('calGameLocation').value = '';
+    document.getElementById('calModalOverlay').style.display = 'flex';
+  }
+
+  function openEditGameModal(gameId) {
+    const game = _allGames.find(g => g.id === gameId);
+    if (!game) return;
+    _editingGameId = gameId;
+    document.getElementById('calModalTitle').textContent = 'Edit Game';
+    document.getElementById('calDeleteBtn').style.display = 'inline-flex';
+    document.getElementById('calSaveBtn').textContent = 'Update Game';
+    populateTeamDropdown();
+    // Check if team matches a dropdown option; if not, use custom input
+    const sel = document.getElementById('calGameTeam');
+    const opts = Array.from(sel.options).map(o => o.value);
+    if (opts.includes(game.team)) {
+      sel.value = game.team || '';
+      document.getElementById('calGameTeamCustom').value = '';
+      document.getElementById('calGameTeamCustom').style.display = 'none';
+    } else {
+      sel.value = '__custom__';
+      document.getElementById('calGameTeamCustom').value = game.team || '';
+      document.getElementById('calGameTeamCustom').style.display = 'block';
+    }
+    document.getElementById('calGameOpponent').value = game.opponent || '';
+    document.getElementById('calGameDate').value = game.gameDate || '';
+    document.getElementById('calGameTime').value = game.gameTime || '';
+    document.getElementById('calGameLocation').value = game.location || '';
+    document.getElementById('calModalOverlay').style.display = 'flex';
+  }
+
+  function closeCalModal() {
+    document.getElementById('calModalOverlay').style.display = 'none';
+    _editingGameId = null;
+  }
+
+  async function saveGame() {
+    let team = document.getElementById('calGameTeam').value;
+    if (team === '__custom__') team = document.getElementById('calGameTeamCustom').value.trim();
+    const opponent = document.getElementById('calGameOpponent').value.trim();
+    const gameDate = document.getElementById('calGameDate').value;
+    const gameTime = document.getElementById('calGameTime').value;
+    const location = document.getElementById('calGameLocation').value.trim();
+
+    if (!team) { alert('Please select or enter a team name.'); return; }
+    if (!opponent) { alert('Please enter an opponent.'); return; }
+    if (!gameDate) { alert('Please select a game date.'); return; }
+
+    const btn = document.getElementById('calSaveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      const { collection, addDoc, updateDoc, doc, serverTimestamp } = window._fns;
+      const data = { team, opponent, gameDate, gameTime, location, dueDate: getDueDate(gameDate), updatedAt: serverTimestamp() };
+
+      if (_editingGameId) {
+        await updateDoc(doc(window._db, 'schedule', _editingGameId), data);
+      } else {
+        data.createdAt = serverTimestamp();
+        await addDoc(collection(window._db, 'schedule'), data);
+      }
+
+      closeCalModal();
+      await loadAll();
+    } catch (e) {
+      alert('Error saving game: ' + e.message);
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = _editingGameId ? 'Update Game' : 'Save Game';
+    }
+  }
+
+  async function deleteGame() {
+    if (!_editingGameId) return;
+    if (!confirm('Delete this game from the schedule?')) return;
+
+    try {
+      const { doc, deleteDoc } = window._fns;
+      await deleteDoc(doc(window._db, 'schedule', _editingGameId));
+      closeCalModal();
+      await loadAll();
+    } catch (e) {
+      alert('Error deleting game: ' + e.message);
+      console.error(e);
+    }
   }
 </script>
 
