@@ -56,16 +56,13 @@ exports.scrapeGameChanger = functions
 
         let browser;
         try {
-          const puppeteer = require("puppeteer");
+          const chromium = require("@sparticuz/chromium");
+          const puppeteer = require("puppeteer-core");
           browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-              "--no-sandbox",
-              "--disable-setuid-sandbox",
-              "--disable-dev-shm-usage",
-              "--disable-gpu",
-              "--single-process",
-            ],
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
           });
 
           const result = await scrapeTeam(browser, teamUrl, limit);
