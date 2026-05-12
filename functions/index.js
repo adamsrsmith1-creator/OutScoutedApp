@@ -281,6 +281,9 @@ async function scrapeGame(browser, gameInfo) {
       "Chrome/120.0.0.0 Safari/537.36",
   );
 
+  // Disable cache to avoid GC SPA serving stale content between games
+  await page.setCacheEnabled(false);
+
   const result = {
     id: gameInfo.id,
     label: gameInfo.text,
@@ -294,6 +297,9 @@ async function scrapeGame(browser, gameInfo) {
   // ─── BOX SCORE ───
   const boxUrl = gameInfo.baseUrl + "/box-score";
   console.log(`Game ${gameInfo.id}: loading box score from ${boxUrl}`);
+  // Navigate to blank first to force full page load (GC is a SPA and may
+  // serve stale content if navigating between game routes directly)
+  await page.goto("about:blank", {waitUntil: "load"});
   await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
@@ -380,9 +386,11 @@ async function scrapeGame(browser, gameInfo) {
     return {fullText: text};
   });
 
+  // Verify we're on the correct game page by checking the URL
+  const currentBoxUrl = await page.url();
   console.log(`Game ${gameInfo.id}: box score ${
     result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
-    "EMPTY"}`);
+    "EMPTY"} (url: ${currentBoxUrl})`);
 
   // If box score was empty, try one more time after a longer wait
   if (!result.boxScore.fullText) {
@@ -406,6 +414,8 @@ async function scrapeGame(browser, gameInfo) {
   // ─── PLAY BY PLAY ───
   const playsUrl = gameInfo.baseUrl + "/plays";
   console.log(`Game ${gameInfo.id}: loading plays from ${playsUrl}`);
+  // Navigate to blank first to force full page load
+  await page.goto("about:blank", {waitUntil: "load"});
   await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
