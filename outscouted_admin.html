@@ -536,6 +536,10 @@
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
       Calendar
     </button>
+    <button class="nav-item" onclick="switchView('gcimport')" id="nav-gcimport">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      GC Import
+    </button>
     <button class="nav-item" onclick="switchView('demos')" id="nav-demos">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
       Demo Requests
@@ -802,6 +806,62 @@
           <button class="btn btn-ghost btn-sm" onclick="closeCalModal()">Cancel</button>
           <button class="btn btn-danger btn-sm" id="calDeleteBtn" onclick="deleteGame()" style="display:none;">Delete</button>
           <button class="btn btn-primary btn-sm" id="calSaveBtn" onclick="saveGame()">Save Game</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GC IMPORT -->
+    <div class="view" id="view-gcimport">
+      <div class="page-header">
+        <div class="page-header-left">
+          <div class="page-title">GameChanger Import</div>
+          <div class="page-sub">Paste a GameChanger team link to automatically scrape box scores and play-by-play data for scouting reports.</div>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="padding:1.2rem;">
+        <div style="display:flex;gap:0.6rem;align-items:flex-end;flex-wrap:wrap;">
+          <div class="field" style="flex:1;min-width:280px;">
+            <label>GameChanger Team URL</label>
+            <input type="text" id="gcTeamUrl" placeholder="e.g. https://web.gc.com/teams/XXXXX" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.85rem;padding:0.5rem 0.6rem;outline:none;font-family:'Barlow',sans-serif;">
+          </div>
+          <div class="field" style="width:120px;">
+            <label>Max Games</label>
+            <select id="gcMaxGames" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.85rem;padding:0.5rem 0.6rem;outline:none;font-family:'Barlow',sans-serif;">
+              <option value="5">5 games</option>
+              <option value="10">10 games</option>
+              <option value="20" selected>20 games</option>
+              <option value="30">30 games</option>
+              <option value="50">All (max 50)</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" id="gcScrapeBtn" onclick="startGcScrape()" style="height:36px;white-space:nowrap;">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Import Data
+          </button>
+        </div>
+        <div id="gcStatus" style="margin-top:0.8rem;display:none;"></div>
+      </div>
+
+      <!-- Progress bar -->
+      <div id="gcProgressWrap" style="display:none;margin-top:0.6rem;padding:0 1.2rem;">
+        <div style="background:var(--surface2);border-radius:var(--r);overflow:hidden;height:6px;">
+          <div id="gcProgressBar" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s ease;"></div>
+        </div>
+        <div id="gcProgressText" style="font-size:0.75rem;color:var(--muted2);margin-top:0.3rem;">Initializing...</div>
+      </div>
+
+      <!-- Results -->
+      <div id="gcResultsWrap" style="display:none;margin-top:1rem;">
+        <div class="table-wrap">
+          <div class="table-header">
+            <div class="table-title" id="gcResultsTitle">Scraped Games</div>
+            <div style="display:flex;gap:0.5rem;">
+              <button class="btn btn-ghost btn-sm" onclick="copyGcResults()">Copy All Data</button>
+              <button class="btn btn-primary btn-sm" onclick="downloadGcResults()">Download JSON</button>
+            </div>
+          </div>
+          <div id="gcResultsContainer"></div>
         </div>
       </div>
     </div>
@@ -1656,6 +1716,213 @@
       alert('Error deleting game: ' + e.message);
       console.error(e);
     }
+  }
+
+  // ═══════════════════════════════════
+  // ── GC IMPORT FUNCTIONS ──
+  // ═══════════════════════════════════
+
+  const GC_FUNCTION_URL = 'https://us-central1-outscouted-app.cloudfunctions.net/scrapeGameChanger';
+  let _gcScrapedData = null;
+
+  async function startGcScrape() {
+    const url = document.getElementById('gcTeamUrl').value.trim();
+    const maxGames = parseInt(document.getElementById('gcMaxGames').value) || 20;
+
+    if (!url || !url.includes('gc.com/teams/')) {
+      alert('Please enter a valid GameChanger team URL (e.g. https://web.gc.com/teams/XXXXX)');
+      return;
+    }
+
+    const btn = document.getElementById('gcScrapeBtn');
+    const status = document.getElementById('gcStatus');
+    const progressWrap = document.getElementById('gcProgressWrap');
+    const progressBar = document.getElementById('gcProgressBar');
+    const progressText = document.getElementById('gcProgressText');
+    const resultsWrap = document.getElementById('gcResultsWrap');
+
+    btn.disabled = true;
+    btn.textContent = 'Scraping...';
+    status.style.display = 'block';
+    status.innerHTML = '<span style="color:var(--accent);">⏳ Connecting to GameChanger... This may take 1-3 minutes depending on number of games.</span>';
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '10%';
+    progressText.textContent = 'Launching browser and loading team page...';
+    resultsWrap.style.display = 'none';
+    _gcScrapedData = null;
+
+    // Simulate progress since we can't get real-time updates from the function
+    let progress = 10;
+    const progressInterval = setInterval(() => {
+      if (progress < 85) {
+        progress += Math.random() * 3;
+        progressBar.style.width = Math.min(progress, 85) + '%';
+        if (progress < 25) progressText.textContent = 'Loading team schedule...';
+        else if (progress < 50) progressText.textContent = 'Scraping box scores...';
+        else if (progress < 75) progressText.textContent = 'Scraping play-by-play data...';
+        else progressText.textContent = 'Processing remaining games...';
+      }
+    }, 2000);
+
+    try {
+      const token = await window._auth.currentUser.getIdToken();
+      const resp = await fetch(GC_FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ teamUrl: url, maxGames })
+      });
+
+      clearInterval(progressInterval);
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      _gcScrapedData = data;
+
+      progressBar.style.width = '100%';
+      progressText.textContent = 'Complete!';
+
+      const successGames = data.games.filter(g => !g.error);
+      const failedGames = data.games.filter(g => g.error);
+
+      status.innerHTML = `<span style="color:var(--success);">✓ Scraped ${successGames.length} of ${data.gamesFound} games for <strong>${escapeHtml(data.teamName || 'Unknown Team')}</strong></span>` +
+        (failedGames.length ? `<br><span style="color:var(--warning);">⚠ ${failedGames.length} game(s) had errors</span>` : '');
+
+      renderGcResults(data);
+
+    } catch (err) {
+      clearInterval(progressInterval);
+      progressBar.style.width = '0%';
+      progressWrap.style.display = 'none';
+      status.innerHTML = `<span style="color:var(--danger);">✗ Error: ${escapeHtml(err.message)}</span>`;
+      console.error('GC Scrape error:', err);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg> Import Data';
+    }
+  }
+
+  function renderGcResults(data) {
+    const container = document.getElementById('gcResultsContainer');
+    const wrap = document.getElementById('gcResultsWrap');
+    const title = document.getElementById('gcResultsTitle');
+
+    title.textContent = `${data.teamName || 'Team'} — ${data.games.length} Games`;
+    wrap.style.display = 'block';
+
+    let html = '<table style="width:100%;"><thead><tr>' +
+      '<th style="text-align:left;padding:0.5rem;">Game</th>' +
+      '<th style="text-align:left;padding:0.5rem;">Date</th>' +
+      '<th style="text-align:center;padding:0.5rem;">Box Score</th>' +
+      '<th style="text-align:center;padding:0.5rem;">Play-by-Play</th>' +
+      '<th style="text-align:center;padding:0.5rem;">Actions</th>' +
+      '</tr></thead><tbody>';
+
+    data.games.forEach((game, idx) => {
+      if (game.error) {
+        html += `<tr style="opacity:0.5;"><td style="padding:0.5rem;" colspan="5">❌ ${escapeHtml(game.label || game.id)} — ${escapeHtml(game.error)}</td></tr>`;
+        return;
+      }
+
+      const hasBox = game.boxScore && game.boxScore.fullText;
+      const hasPlays = game.plays && game.plays.length > 50;
+      const label = game.label || game.dateInfo || game.id;
+
+      html += `<tr>` +
+        `<td style="padding:0.5rem;font-size:0.85rem;">${escapeHtml(label.substring(0, 60))}</td>` +
+        `<td style="padding:0.5rem;font-size:0.8rem;color:var(--muted2);">${escapeHtml(game.dateInfo || '')}</td>` +
+        `<td style="padding:0.5rem;text-align:center;">${hasBox ? '<span style="color:var(--success);">✓</span>' : '<span style="color:var(--muted);">—</span>'}</td>` +
+        `<td style="padding:0.5rem;text-align:center;">${hasPlays ? '<span style="color:var(--success);">✓</span>' : '<span style="color:var(--muted);">—</span>'}</td>` +
+        `<td style="padding:0.5rem;text-align:center;">` +
+          `<button class="btn btn-ghost btn-sm" onclick="viewGcGame(${idx})" style="font-size:0.75rem;">View</button>` +
+        `</td>` +
+        `</tr>`;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }
+
+  function viewGcGame(idx) {
+    if (!_gcScrapedData || !_gcScrapedData.games[idx]) return;
+    const game = _gcScrapedData.games[idx];
+
+    let content = '';
+    if (game.boxScore && game.boxScore.fullText) {
+      content += '══════════════════════════════\n';
+      content += 'BOX SCORE\n';
+      content += '══════════════════════════════\n\n';
+      content += game.boxScore.fullText + '\n\n';
+    }
+    if (game.plays) {
+      content += '══════════════════════════════\n';
+      content += 'PLAY BY PLAY\n';
+      content += '══════════════════════════════\n\n';
+      content += game.plays + '\n';
+    }
+
+    // Open in a new window for easy viewing/copying
+    const win = window.open('', '_blank', 'width=800,height=600');
+    if (win) {
+      win.document.write(`<html><head><title>Game ${idx + 1} Data</title>` +
+        `<style>body{background:#111;color:#e8e8e8;font-family:monospace;padding:1rem;white-space:pre-wrap;font-size:13px;}</style>` +
+        `</head><body>${escapeHtml(content)}</body></html>`);
+      win.document.close();
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(content).then(() => {
+        alert('Game data copied to clipboard!');
+      });
+    }
+  }
+
+  function copyGcResults() {
+    if (!_gcScrapedData) { alert('No data to copy.'); return; }
+
+    let text = `Team: ${_gcScrapedData.teamName}\nGames: ${_gcScrapedData.games.length}\n\n`;
+
+    _gcScrapedData.games.forEach((game, idx) => {
+      if (game.error) return;
+      text += `${'═'.repeat(50)}\n`;
+      text += `GAME ${idx + 1}: ${game.label || game.dateInfo || game.id}\n`;
+      text += `${'═'.repeat(50)}\n\n`;
+      if (game.boxScore && game.boxScore.fullText) {
+        text += 'BOX SCORE:\n' + game.boxScore.fullText + '\n\n';
+      }
+      if (game.plays) {
+        text += 'PLAY BY PLAY:\n' + game.plays + '\n\n';
+      }
+    });
+
+    navigator.clipboard.writeText(text).then(() => {
+      alert('All game data copied to clipboard!');
+    }).catch(() => {
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      alert('All game data copied to clipboard!');
+    });
+  }
+
+  function downloadGcResults() {
+    if (!_gcScrapedData) { alert('No data to download.'); return; }
+
+    const blob = new Blob([JSON.stringify(_gcScrapedData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gc-import-${(_gcScrapedData.teamName || 'team').replace(/\s+/g, '-').toLowerCase()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 </script>
 
