@@ -105,19 +105,34 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
   await delay(3000);
   console.log("Schedule page loaded");
 
-  // Extract team name
+  // Extract team name from the page header / breadcrumb
   const teamName = await page.evaluate(() => {
-    // Try the team header area
+    // Try breadcrumb or header links that contain the team name
     const links = document.querySelectorAll('a[href*="/teams/"]');
+    const candidates = [];
     for (const link of links) {
       const text = link.innerText.trim();
       if (text.length > 3 && !text.includes("Home") &&
-          !text.includes("Schedule")) {
+          !text.includes("Schedule") && text !== "HOME" &&
+          text !== "AWAY" && !text.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s/)) {
+        candidates.push(text);
+      }
+    }
+    // Prefer the longest candidate (usually the full team name)
+    if (candidates.length > 0) {
+      return candidates.sort((a, b) => b.length - a.length)[0];
+    }
+    // Fallback: look for heading elements
+    const headings = document.querySelectorAll('h1, h2, h3');
+    for (const h of headings) {
+      const text = h.innerText.trim();
+      if (text.length > 5 && text.length < 80 && text !== "HOME" &&
+          !text.includes("Schedule") && !text.includes("GameChanger")) {
         return text;
       }
     }
-    // Fallback: page title
-    return document.title.replace("GameChanger", "").replace("|", "").trim();
+    // Last fallback: page title
+    return document.title.replace(/GameChanger/gi, "").replace(/\|/g, "").trim();
   });
 
   // Extract all game links from the schedule
@@ -279,33 +294,14 @@ async function scrapeGame(browser, gameInfo) {
     });
     return names;
   });
-  if (teamNames.length > 0) result.teams.home = teamNames[0];
-
-  // Get opponent name (not a link, just text with SVG icon)
-  const opponentName = await page.evaluate((teamNamesArg) => {
-    const main = document.querySelector("main");
-    if (!main) return "";
-    const divs = main.querySelectorAll("div");
-    for (const div of divs) {
-      const text = div.innerText.trim();
-      if (text.includes("Varsity") || text.includes("JV") ||
-          text.includes("Bulldogs") || text.includes("Eagles") ||
-          text.includes("Bears") || text.includes("Panthers") ||
-          text.includes("Tigers") || text.includes("Indians") ||
-          text.includes("Cardinals") || text.includes("Dragons") ||
-          text.includes("Wildcats") || text.includes("Lions") ||
-          text.includes("Rams") || text.includes("Hawks") ||
-          text.includes("Warriors") || text.includes("Knights")) {
-        if (teamNamesArg.length > 0 && text !== teamNamesArg[0] &&
-            !text.includes("LINEUP") && !text.includes("PITCHING") &&
-            text.length < 60) {
-          return text;
-        }
-      }
-    }
-    return "";
-  }, teamNames);
-  result.teams.away = opponentName;
+  // Assign team names from box score page links
+  // GC box score pages list both teams as links
+  if (teamNames.length >= 2) {
+    result.teams.home = teamNames[0];
+    result.teams.away = teamNames[1];
+  } else if (teamNames.length === 1) {
+    result.teams.home = teamNames[0];
+  }
 
   // Get linescore
   result.linescore = await page.evaluate(() => {
