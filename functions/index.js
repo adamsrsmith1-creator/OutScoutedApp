@@ -56,19 +56,23 @@ exports.scrapeGameChanger = functions
 
         let browser;
         try {
+          console.log("Starting scrape for:", teamUrl);
           const chromium = require("@sparticuz/chromium");
           const puppeteer = require("puppeteer-core");
+          console.log("Chromium exec path:", await chromium.executablePath());
           browser = await puppeteer.launch({
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
             headless: chromium.headless,
           });
+          console.log("Browser launched successfully");
 
           const result = await scrapeTeam(browser, teamUrl, limit);
+          console.log("Scrape complete. Games found:", result.games ? result.games.length : 0);
           res.json(result);
         } catch (err) {
-          console.error("Scrape error:", err);
+          console.error("Scrape error:", err.message, err.stack);
           res.status(500).json({error: err.message});
         } finally {
           if (browser) await browser.close();
@@ -94,8 +98,10 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
     scheduleUrl += "/schedule";
   }
 
+  console.log("Navigating to schedule:", scheduleUrl);
   await page.goto(scheduleUrl, {waitUntil: "networkidle2", timeout: 30000});
   await page.waitForTimeout(3000);
+  console.log("Schedule page loaded");
 
   // Extract team name
   const teamName = await page.evaluate(() => {
