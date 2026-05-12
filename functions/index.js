@@ -30,16 +30,21 @@ exports.scrapeGameChanger = functions
           res.status(401).json({error: "Unauthorized"});
           return;
         }
+        const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
         try {
           const idToken = authHeader.split("Bearer ")[1];
-          await admin.auth().verifyIdToken(idToken);
+          const decodedToken = await admin.auth().verifyIdToken(idToken);
+          if (decodedToken.email !== ADMIN_EMAIL) {
+            res.status(403).json({error: "Admin access required"});
+            return;
+          }
         } catch (authErr) {
           res.status(401).json({error: "Invalid auth token"});
           return;
         }
 
         const {teamUrl, maxGames} = req.body;
-        if (!teamUrl || !teamUrl.includes("gc.com/teams/")) {
+        if (!teamUrl || !(teamUrl.startsWith("https://web.gc.com/teams/") || teamUrl.startsWith("https://www.gc.com/teams/"))) {
           res.status(400).json({
             error: "Invalid URL. Provide a GameChanger team URL " +
               "(e.g. https://web.gc.com/teams/XXXXX)",
