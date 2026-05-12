@@ -998,8 +998,10 @@
     }
 
     // Upcoming due dates on overview
-    const today = new Date().toISOString().slice(0, 10);
+    const nowLocal = new Date();
+    const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}`;
     const upcoming = _allGames
+      .filter(g => g.gameDate)
       .map(g => ({ ...g, dueDate: getDueDate(g.gameDate) }))
       .filter(g => g.dueDate >= today)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
@@ -1492,7 +1494,7 @@
     const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
     const prevMonthDays = new Date(_calYear, _calMonth, 0).getDate();
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date(); const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 
     // Build event lookup: dateStr -> [{type, label, game}]
     const events = {};
