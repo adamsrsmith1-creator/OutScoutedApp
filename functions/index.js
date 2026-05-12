@@ -24,6 +24,20 @@ exports.scrapeGameChanger = functions
           return;
         }
 
+        // Verify Firebase Auth token
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          res.status(401).json({error: "Unauthorized"});
+          return;
+        }
+        try {
+          const idToken = authHeader.split("Bearer ")[1];
+          await admin.auth().verifyIdToken(idToken);
+        } catch (authErr) {
+          res.status(401).json({error: "Invalid auth token"});
+          return;
+        }
+
         const {teamUrl, maxGames} = req.body;
         if (!teamUrl || !teamUrl.includes("gc.com/teams/")) {
           res.status(400).json({
@@ -212,6 +226,7 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
  */
 async function scrapeGame(browser, gameInfo) {
   const page = await browser.newPage();
+  try {
   await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
       "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -257,11 +272,9 @@ async function scrapeGame(browser, gameInfo) {
   if (teamNames.length > 0) result.teams.home = teamNames[0];
 
   // Get opponent name (not a link, just text with SVG icon)
-  const opponentName = await page.evaluate(() => {
-    // The opponent is rendered as a div (not a link) near the team name
+  const opponentName = await page.evaluate((teamNamesArg) => {
     const main = document.querySelector("main");
     if (!main) return "";
-    // Look for all text blocks that contain team-like names
     const divs = main.querySelectorAll("div");
     for (const div of divs) {
       const text = div.innerText.trim();
@@ -273,8 +286,7 @@ async function scrapeGame(browser, gameInfo) {
           text.includes("Wildcats") || text.includes("Lions") ||
           text.includes("Rams") || text.includes("Hawks") ||
           text.includes("Warriors") || text.includes("Knights")) {
-        // Check if this is NOT the home team
-        if (teamNames.length > 0 && text !== teamNames[0] &&
+        if (teamNamesArg.length > 0 && text !== teamNamesArg[0] &&
             !text.includes("LINEUP") && !text.includes("PITCHING") &&
             text.length < 60) {
           return text;
@@ -282,7 +294,7 @@ async function scrapeGame(browser, gameInfo) {
       }
     }
     return "";
-  });
+  }, teamNames);
   result.teams.away = opponentName;
 
   // Get linescore
@@ -387,6 +399,8 @@ async function scrapeGame(browser, gameInfo) {
     return lines.join("\n");
   });
 
-  await page.close();
   return result;
+  } finally {
+    await page.close();
+  }
 }

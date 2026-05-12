@@ -1765,9 +1765,10 @@
     }, 2000);
 
     try {
+      const token = await window._auth.currentUser.getIdToken();
       const resp = await fetch(GC_FUNCTION_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ teamUrl: url, maxGames })
       });
 
