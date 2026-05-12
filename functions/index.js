@@ -4,6 +4,8 @@ const cors = require("cors")({origin: true});
 
 admin.initializeApp();
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * scrapeGameChanger – Firebase Cloud Function
  *
@@ -100,7 +102,7 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
 
   console.log("Navigating to schedule:", scheduleUrl);
   await page.goto(scheduleUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await page.waitForTimeout(3000);
+  await delay(3000);
   console.log("Schedule page loaded");
 
   // Extract team name
@@ -171,7 +173,7 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
           waitUntil: "networkidle2",
           timeout: 30000,
         });
-        await page.waitForTimeout(3000);
+        await delay(3000);
 
         // Re-extract links
         const newLinks = await page.evaluate(() => {
@@ -254,7 +256,7 @@ async function scrapeGame(browser, gameInfo) {
   // ─── BOX SCORE ───
   const boxUrl = gameInfo.baseUrl + "/box-score";
   await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await page.waitForTimeout(2000);
+  await delay(2000);
 
   // Get date info
   result.dateInfo = await page.evaluate(() => {
@@ -361,13 +363,13 @@ async function scrapeGame(browser, gameInfo) {
   // ─── PLAY BY PLAY ───
   const playsUrl = gameInfo.baseUrl + "/plays";
   await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await page.waitForTimeout(2000);
+  await delay(2000);
 
   // Scroll to load all plays
   let prevHeight = 0;
   for (let i = 0; i < 20; i++) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(500);
+    await delay(500);
     const currHeight = await page.evaluate(() => document.body.scrollHeight);
     if (currHeight === prevHeight) break;
     prevHeight = currHeight;
