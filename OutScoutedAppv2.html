@@ -3284,7 +3284,7 @@ function parseBoxScoreText(fullText, scoutTeamName) {
         if (jm) jersey = jm[1];
         const pm = jerseyLine.match(/\(([^)]+)\)/);
         if (pm) position = pm[1].split(',')[0].trim();
-        if (!jm && !jerseyLine.match(/^\d/)) { i--; continue; } // not a player line
+        if (!jm && !jerseyLine.match(/^\d/)) { continue; } // not a player line, i already advanced past it
 
         // Check for substitute indicator
         if (jerseyLine.includes('SUB') || jerseyLine.includes('PH') || jerseyLine.includes('PR')) starter = false;
