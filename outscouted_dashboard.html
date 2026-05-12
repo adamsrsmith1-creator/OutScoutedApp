@@ -1245,6 +1245,19 @@
         </div>
       </div>
       <div class="account-card">
+        <div class="account-card-title">My Team</div>
+        <div class="account-row" style="flex-direction:column;align-items:stretch;gap:0.5rem;">
+          <span class="account-row-label">GameChanger Link</span>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <input type="url" id="acctGameChangerLink" placeholder="https://www.gamechanger.io/t/your-team"
+              style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.85rem;padding:0.5rem 0.75rem;outline:none;font-family:'Barlow',sans-serif;">
+            <button id="saveGcLinkBtn" onclick="saveGameChangerLink()" style="white-space:nowrap;background:var(--accent);color:#0a0a0a;border:none;border-radius:var(--r);padding:0.45rem 1rem;font-size:0.8rem;font-weight:600;cursor:pointer;font-family:'Barlow',sans-serif;">Save</button>
+          </div>
+          <span style="font-size:0.72rem;color:var(--muted);display:block;">Paste your team's GameChanger URL so your admin can easily find your schedule and stats.</span>
+          <span class="account-row-value" id="gcLinkSaveMsg" style="display:none;color:var(--success);font-size:0.78rem;">Saved!</span>
+        </div>
+      </div>
+      <div class="account-card">
         <div class="account-card-title">Support</div>
         <div class="account-row">
           <span class="account-row-label">Questions or issues?</span>
@@ -1334,6 +1347,11 @@
     document.getElementById("acctSince").textContent = user.metadata.creationTime
       ? new Date(user.metadata.creationTime).toLocaleDateString("en-US", { month: "long", year: "numeric" })
       : "—";
+
+    // Load GameChanger link from user doc
+    if (userDoc && userDoc.exists() && userDoc.data().gameChangerLink) {
+      document.getElementById("acctGameChangerLink").value = userDoc.data().gameChangerLink;
+    }
 
     if (role === "pro") {
       document.getElementById("roleBadge").textContent = "Pro";
@@ -1482,6 +1500,30 @@
   // ── SIGN OUT ──
   window.handleSignOut = function handleSignOut() {
     if (window._signOut) window._signOut();
+  }
+
+  // ── SAVE GAMECHANGER LINK ──
+  window.saveGameChangerLink = async function saveGameChangerLink() {
+    const link = document.getElementById("acctGameChangerLink").value.trim();
+    const msg = document.getElementById("gcLinkSaveMsg");
+    const btn = document.getElementById("saveGcLinkBtn");
+    try {
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      const { doc, updateDoc } = window._firestoreFns;
+      await updateDoc(doc(window._db, "users", window._user.uid), { gameChangerLink: link });
+      msg.textContent = "Saved!";
+      msg.style.display = "inline";
+      msg.style.color = "var(--success)";
+      setTimeout(() => { msg.style.display = "none"; }, 3000);
+    } catch (e) {
+      msg.textContent = "Error saving: " + e.message;
+      msg.style.display = "inline";
+      msg.style.color = "var(--danger)";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
   }
 
   // ── OPEN REPORT ──
