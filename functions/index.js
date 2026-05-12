@@ -146,7 +146,7 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
             !href.includes("/schedule/") &&
             !text.includes("Home") && !text.includes("Schedule") &&
             text !== "HOME" && text !== "AWAY" &&
-            !text.match(/^[@vs.]/) &&
+            !text.match(/^(@|vs\.)/) &&
             !text.match(/[WLT]\s+\d+-\d+/)) {
           return text;
         }
