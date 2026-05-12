@@ -3204,6 +3204,395 @@ async function parseAll() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── GC IMPORT: Auto-load scraped data from admin panel ──
+// ═══════════════════════════════════════════════════════════════
+
+function parseBoxScoreText(fullText, scoutTeamName) {
+  const result = {
+    awayTeam: '', homeTeam: '',
+    awayLineup: [], homeLineup: [],
+    awayPitching: [], homePitching: [],
+    awayErrors: {}, homeErrors: {},
+    awaySB: 0, awayCS: 0, homeSB: 0, homeCS: 0,
+    awaySBDetail: {}, awayCSDetail: {}, homeSBDetail: {}, homeCSDetail: {}
+  };
+
+  if (!fullText) return result;
+
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Find team sections: look for team name headers followed by LINEUP
+  const teamSections = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === 'LINEUP' && i > 0) {
+      // Team name is the line before LINEUP
+      let teamName = '';
+      for (let j = i - 1; j >= 0; j--) {
+        const candidate = lines[j];
+        if (candidate.length > 3 && !candidate.match(/^(RECAP|BOX SCORE|PLAYS|VIDEOS|INFO|FINAL|\d)/) &&
+            !candidate.match(/^\d+$/) && candidate !== 'R' && candidate !== 'H' && candidate !== 'E') {
+          teamName = candidate;
+          break;
+        }
+      }
+      teamSections.push({ teamName, lineupStart: i + 1 });
+    }
+  }
+
+  if (teamSections.length < 2) return result;
+  result.awayTeam = teamSections[0].teamName;
+  result.homeTeam = teamSections[1].teamName;
+
+  // Parse a team section (lineup + pitching + notes)
+  function parseTeamSection(startIdx) {
+    const lineup = [];
+    const pitching = [];
+    const errors = {};
+    let sb = 0, cs = 0;
+    const sbDetail = {}, csDetail = {};
+
+    // Find column headers (AB, R, H, RBI, BB, SO)
+    let headerIdx = startIdx;
+    while (headerIdx < lines.length && lines[headerIdx] !== 'AB') headerIdx++;
+    if (headerIdx >= lines.length) return { lineup, pitching, errors, sb, cs, sbDetail, csDetail };
+
+    // Verify we have the stat headers
+    const expectedHeaders = ['AB', 'R', 'H', 'RBI', 'BB', 'SO'];
+    let headersMatch = true;
+    for (let h = 0; h < expectedHeaders.length; h++) {
+      if (lines[headerIdx + h] !== expectedHeaders[h]) { headersMatch = false; break; }
+    }
+    if (!headersMatch) return { lineup, pitching, errors, sb, cs, sbDetail, csDetail };
+
+    // Parse batting lineup: name, jersey/pos, then 6 stats
+    let i = headerIdx + expectedHeaders.length;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line === 'TEAM' || line === 'PITCHING') break;
+
+      // Player name line (e.g. "K Gillespie")
+      // Next line is jersey/position (e.g. "#00 (CF)")
+      if (line.match(/^[A-Z]/) && !line.match(/^(HR|TB|SB|CS|E|HBP|2B|3B|SF|SAC|WP|Pitches|Batters|TEAM|PITCHING)/)) {
+        const playerName = line;
+        i++;
+        if (i >= lines.length) break;
+
+        const jerseyLine = lines[i];
+        let jersey = '', position = '', starter = true;
+        const jm = jerseyLine.match(/#(\d+)/);
+        if (jm) jersey = jm[1];
+        const pm = jerseyLine.match(/\(([^)]+)\)/);
+        if (pm) position = pm[1].split(',')[0].trim();
+        if (!jm && !jerseyLine.match(/^\d/)) { i--; continue; } // not a player line
+
+        // Check for substitute indicator
+        if (jerseyLine.includes('SUB') || jerseyLine.includes('PH') || jerseyLine.includes('PR')) starter = false;
+
+        i++;
+        // Read 6 stat values
+        const stats = [];
+        for (let s = 0; s < 6 && i < lines.length; s++, i++) {
+          stats.push(parseInt(lines[i]) || 0);
+        }
+
+        if (stats.length === 6) {
+          lineup.push({
+            name: playerName, jersey, position,
+            ab: stats[0], r: stats[1], h: stats[2], rbi: stats[3], bb: stats[4], so: stats[5],
+            starter
+          });
+        }
+        continue;
+      }
+      i++;
+    }
+
+    // Skip TEAM total line
+    while (i < lines.length && (lines[i] === 'TEAM' || lines[i].match(/^\d+$/))) i++;
+
+    // Parse notes section (HR, TB, SB, CS, E, etc.)
+    while (i < lines.length && lines[i] !== 'PITCHING') {
+      const line = lines[i];
+      if (line.startsWith('SB:')) {
+        const parts = line.substring(3).trim().split(',');
+        parts.forEach(p => {
+          p = p.trim();
+          const m = p.match(/^(.+?)\s+(\d+)$/);
+          if (m) { sbDetail[m[1].trim()] = parseInt(m[2]); sb += parseInt(m[2]); }
+          else if (p.length > 1) { sbDetail[p] = 1; sb += 1; }
+        });
+      } else if (line.startsWith('CS:')) {
+        const parts = line.substring(3).trim().split(',');
+        parts.forEach(p => {
+          p = p.trim();
+          const m = p.match(/^(.+?)\s+(\d+)$/);
+          if (m) { csDetail[m[1].trim()] = parseInt(m[2]); cs += parseInt(m[2]); }
+          else if (p.length > 1) { csDetail[p] = 1; cs += 1; }
+        });
+      } else if (line.startsWith('E:')) {
+        const parts = line.substring(2).trim().split(',');
+        parts.forEach(p => {
+          p = p.trim();
+          const m = p.match(/^(.+?)\s+(\d+)$/);
+          if (m) errors[m[1].trim()] = parseInt(m[2]);
+          else if (p.length > 1) errors[p] = 1;
+        });
+      }
+      i++;
+    }
+
+    // Parse pitching section
+    if (i < lines.length && lines[i] === 'PITCHING') {
+      i++;
+      // Skip headers: IP, H, R, ER, BB, SO
+      const pitchHeaders = ['IP', 'H', 'R', 'ER', 'BB', 'SO'];
+      let phIdx = i;
+      while (phIdx < lines.length && lines[phIdx] !== 'IP') phIdx++;
+      if (phIdx < lines.length) {
+        i = phIdx + pitchHeaders.length;
+        // Parse pitchers
+        while (i < lines.length) {
+          const line = lines[i];
+          if (line === 'TEAM' || line.startsWith('Pitches') || line.startsWith('Batters') ||
+              line.match(/^(2B|3B|AB|BB|CS|E|ER|H|HBP|HR|IP|R|RBI|SB|SO|TB|SF|SAC|WP|Doubles|Triples)$/) ||
+              (teamSections.length > 1 && line === teamSections[1].teamName)) break;
+
+          if (line.match(/^[A-Z]/) && !line.match(/^(Pitches|Batters|TEAM)/)) {
+            const pitcherName = line;
+            i++;
+            if (i >= lines.length) break;
+            // Jersey line
+            const jLine = lines[i];
+            if (!jLine.match(/#\d+/)) { continue; }
+            i++;
+            // Read 6 pitching stats
+            const pStats = [];
+            for (let s = 0; s < 6 && i < lines.length; s++, i++) {
+              pStats.push(lines[i]);
+            }
+            if (pStats.length === 6) {
+              pitching.push({
+                name: pitcherName,
+                ip: pStats[0],
+                h: parseInt(pStats[1]) || 0,
+                r: parseInt(pStats[2]) || 0,
+                er: parseInt(pStats[3]) || 0,
+                bb: parseInt(pStats[4]) || 0,
+                so: parseInt(pStats[5]) || 0
+              });
+            }
+            continue;
+          }
+          i++;
+        }
+      }
+    }
+
+    return { lineup, pitching, errors, sb, cs, sbDetail, csDetail };
+  }
+
+  // Parse both team sections
+  const away = parseTeamSection(teamSections[0].lineupStart);
+  const home = parseTeamSection(teamSections[1].lineupStart);
+
+  result.awayLineup = away.lineup;
+  result.homeLineup = home.lineup;
+  result.awayPitching = away.pitching;
+  result.homePitching = home.pitching;
+  result.awayErrors = away.errors;
+  result.homeErrors = home.errors;
+  result.awaySB = away.sb; result.awayCS = away.cs;
+  result.homeSB = home.sb; result.homeCS = home.cs;
+  result.awaySBDetail = away.sbDetail; result.awayCSDetail = away.csDetail;
+  result.homeSBDetail = home.sbDetail; result.homeCSDetail = home.csDetail;
+
+  return result;
+}
+
+async function processGcImport() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('gcImport')) return;
+
+  const raw = localStorage.getItem('gcImportData');
+  if (!raw) { console.error('GC Import: no data in localStorage'); return; }
+
+  let gcData;
+  try { gcData = JSON.parse(raw); } catch(e) { console.error('GC Import: invalid JSON'); return; }
+
+  const games = (gcData.games || []).filter(g => !g.error && g.plays);
+  if (!games.length) { console.error('GC Import: no valid games'); return; }
+
+  // Show loading overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'gcImportOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(8,8,8,0.95);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;';
+  overlay.innerHTML = `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:800;color:var(--accent);letter-spacing:0.08em;text-transform:uppercase;">GameChanger Import</div>
+    <div id="gcImportStatus" style="font-size:0.95rem;color:var(--text);">Processing ${games.length} games...</div>
+    <div style="width:300px;background:var(--surface2);border-radius:var(--r);overflow:hidden;height:6px;margin-top:0.5rem;">
+      <div id="gcImportProgress" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s ease;"></div>
+    </div>
+    <div id="gcImportDetail" style="font-size:0.8rem;color:var(--muted2);margin-top:0.3rem;"></div>
+  `;
+  document.body.appendChild(overlay);
+
+  const statusEl = document.getElementById('gcImportStatus');
+  const progressEl = document.getElementById('gcImportProgress');
+  const detailEl = document.getElementById('gcImportDetail');
+
+  // Determine the scout team name from the GC data
+  const scoutTeamName = gcData.teamName || '';
+  if (scoutTeamName && !scoutTeams.includes(scoutTeamName)) {
+    scoutTeams.push(scoutTeamName);
+    renderTags();
+  }
+
+  // Step 1: Convert play-by-play text from each game into File objects
+  statusEl.textContent = 'Converting play-by-play data...';
+  progressEl.style.width = '10%';
+
+  const pbpFiles = [];
+  games.forEach((game, idx) => {
+    if (!game.plays || game.plays.length < 50) return;
+
+    // Clean up the raw play text into the format the parser expects
+    let playText = game.plays;
+
+    // The PBP from the scraper has lines like "Top\n7th\n-\nTeam Name" which
+    // need to be joined into "Top 7th - Team Name" format
+    playText = playText
+      .replace(/\n(Top|Bottom)\n(\d+[a-z]*)\n-\n/gi, '\n$1 $2 - ')
+      .replace(/^(Top|Bottom)\n(\d+[a-z]*)\n-\n/gi, '$1 $2 - ');
+
+    const blob = new Blob([playText], { type: 'text/plain' });
+    const file = new File([blob], `game${idx + 1}_${(game.label || '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30)}.txt`, { type: 'text/plain' });
+    pbpFiles.push(file);
+  });
+
+  // Step 2: Feed PBP files into existing parser
+  statusEl.textContent = `Parsing play-by-play from ${pbpFiles.length} games...`;
+  progressEl.style.width = '25%';
+
+  // Add files to uploadedFiles array
+  pbpFiles.forEach(f => uploadedFiles.push(f));
+  renderFileList();
+
+  // Run the parser
+  try {
+    const batters = {}, pitchers = {};
+    const allHalfInnings = [], allRawLines = [];
+
+    for (let fi = 0; fi < pbpFiles.length; fi++) {
+      detailEl.textContent = `Parsing game ${fi + 1} of ${pbpFiles.length}...`;
+      progressEl.style.width = (25 + (fi / pbpFiles.length) * 35) + '%';
+
+      const text = await pbpFiles[fi].text();
+      const halfInnings = parseContent(text);
+      const fileTeams = [...new Set(halfInnings.map(h => h.battingTeam))];
+      parseGame(halfInnings, batters, pitchers, fileTeams, scoutTeams);
+      allHalfInnings.push(...halfInnings);
+      text.split('\n').forEach(l => allRawLines.push(l.trim()));
+    }
+
+    const scoutSet2 = new Set(scoutTeams.map(t => t.toLowerCase()));
+    const lineupData = {}, fieldingData = {};
+    const perFileHalfInnings = [];
+    for (const f of pbpFiles) {
+      const text = await f.text();
+      perFileHalfInnings.push(parseContent(text));
+    }
+    Object.keys(batters).filter(t => scoutSet2.has(t.toLowerCase())).forEach(team => {
+      lineupData[team] = parseLineupOrder(perFileHalfInnings, team);
+      fieldingData[team] = parseFieldingPositions(allRawLines, team, allHalfInnings);
+    });
+
+    parsedData = { batters, pitchers, lineupData, fieldingData };
+
+    // Velocity analysis
+    const veloData = parseVelocityData(allHalfInnings, scoutTeams);
+    parsedData.veloData = veloData;
+    parsedData.hasVelo = Object.values(veloData.pitchers).some(p => (p.pitches || []).length >= 5);
+
+    // Pitch type analysis
+    const ptData = parsePitchTypeData(allHalfInnings, scoutTeams);
+    parsedData.ptData = ptData;
+    parsedData.hasPitchType = Object.values(ptData.pitchers).some(p => (p.total || 0) >= 5);
+
+    statusEl.textContent = 'Parsing box score data...';
+    progressEl.style.width = '65%';
+
+    // Step 3: Parse box score text directly (no Claude needed!)
+    boxScoreData = [];
+    games.forEach((game, idx) => {
+      if (game.boxScore && game.boxScore.fullText) {
+        detailEl.textContent = `Parsing box score ${idx + 1} of ${games.length}...`;
+        const parsed = parseBoxScoreText(game.boxScore.fullText, scoutTeamName);
+        if (parsed.awayLineup.length > 0 || parsed.homeLineup.length > 0) {
+          boxScoreData.push(parsed);
+        }
+      }
+    });
+
+    statusEl.textContent = 'Building scouting report...';
+    progressEl.style.width = '80%';
+
+    // Step 4: Merge box score data with parser data
+    const teamName = Object.keys(parsedData.batters).find(t => scoutSet2.has(t.toLowerCase())) || '';
+
+    if (boxScoreData.length > 0 && teamName) {
+      mergeBoxScorePositions(boxScoreData, parsedData.fieldingData, teamName);
+      reconcileCatcherSBCS(parsedData.batters, parsedData.pitchers, parsedData.fieldingData, teamName);
+      mergeBoxScoreSBCS(boxScoreData, parsedData.batters, teamName);
+      mergeBoxScorePitching(boxScoreData, parsedData.pitchers, teamName);
+    }
+
+    // Step 5: Render everything
+    statusEl.textContent = 'Rendering report...';
+    progressEl.style.width = '90%';
+
+    renderResults(parsedData.batters, parsedData.pitchers);
+    renderScoutReport(parsedData.batters, parsedData.pitchers, parsedData.lineupData, parsedData.fieldingData);
+
+    if (boxScoreData.length > 0) {
+      const genBtn = document.getElementById('genLineupBtn');
+      if (genBtn) genBtn.style.display = 'inline-block';
+      generateLineupFromBoxScores();
+    }
+
+    document.getElementById('statusDot').className = 'status-dot ready';
+    document.getElementById('statusText').textContent = `GC Import: ${pbpFiles.length} games parsed`;
+
+    progressEl.style.width = '100%';
+    statusEl.textContent = 'Import complete! Generating AI summary...';
+
+    // Clean up localStorage
+    localStorage.removeItem('gcImportData');
+
+    // Remove the overlay after a brief delay to show completion
+    setTimeout(() => {
+      overlay.style.opacity = '0';
+      overlay.style.transition = 'opacity 0.5s ease';
+      setTimeout(() => overlay.remove(), 500);
+    }, 800);
+
+    // Generate AI team summary (needs API key)
+    setTimeout(() => generateTeamSummary(), 500);
+
+  } catch (e) {
+    console.error('GC Import error:', e);
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.style.color = 'var(--danger)';
+    detailEl.textContent = 'Check console for details. Close this overlay to use the app manually.';
+    overlay.onclick = () => overlay.remove();
+  }
+}
+
+// Auto-trigger GC import on page load
+window.addEventListener('load', () => {
+  setTimeout(() => processGcImport(), 500);
+});
+
 async function processBoxScoreImages() {
   const scoutSet = new Set(scoutTeams.map(t=>t.toLowerCase()));
   const teamName = Object.keys(parsedData.batters).find(t=>scoutSet.has(t.toLowerCase()))||'';
