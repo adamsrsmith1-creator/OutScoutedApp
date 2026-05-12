@@ -105,35 +105,58 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
   await delay(3000);
   console.log("Schedule page loaded");
 
-  // Extract team name from the page header / breadcrumb
-  const teamName = await page.evaluate(() => {
-    // Try breadcrumb or header links that contain the team name
-    const links = document.querySelectorAll('a[href*="/teams/"]');
-    const candidates = [];
-    for (const link of links) {
-      const text = link.innerText.trim();
-      if (text.length > 3 && !text.includes("Home") &&
-          !text.includes("Schedule") && text !== "HOME" &&
-          text !== "AWAY" && !text.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s/)) {
-        candidates.push(text);
+  // Extract team name — primary method: derive from the URL slug
+  // URL format: /teams/TEAMID/2026-spring-robinson-varsity-senators
+  // The season slug contains the team name after the season prefix
+  let teamName = "";
+  {
+    const urlParts = teamUrl.replace(/\/+$/, "").split("/");
+    // Find the season slug (e.g. "2026-spring-robinson-varsity-senators")
+    const seasonSlug = urlParts.find((p) =>
+      p.match(/^\d{4}-/) && p.length > 10,
+    );
+    if (seasonSlug) {
+      // Remove the year-season prefix (e.g. "2026-spring-")
+      const withoutPrefix = seasonSlug.replace(
+          /^\d{4}-(?:spring|summer|fall|winter)-/i, "",
+      );
+      if (withoutPrefix && withoutPrefix !== seasonSlug) {
+        // Convert slug to title case: "robinson-varsity-senators" →
+        // "Robinson Varsity Senators"
+        teamName = withoutPrefix
+            .split("-")
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" ");
       }
     }
-    // Prefer the longest candidate (usually the full team name)
-    if (candidates.length > 0) {
-      return candidates.sort((a, b) => b.length - a.length)[0];
-    }
-    // Fallback: look for heading elements
-    const headings = document.querySelectorAll('h1, h2, h3');
-    for (const h of headings) {
-      const text = h.innerText.trim();
-      if (text.length > 5 && text.length < 80 && text !== "HOME" &&
-          !text.includes("Schedule") && !text.includes("GameChanger")) {
-        return text;
+  }
+
+  // Fallback: try to find team name from page content
+  if (!teamName) {
+    teamName = await page.evaluate(() => {
+      // Look for the team name in nav/breadcrumb links that point
+      // to this team's page (not game links)
+      const links = document.querySelectorAll('a[href*="/teams/"]');
+      for (const link of links) {
+        const href = link.href || "";
+        const text = link.innerText.trim();
+        // Only consider links pointing to the team page itself
+        // (not /schedule/ game links), and filter out nav items
+        if (text.length > 3 && text.length < 60 &&
+            !href.includes("/schedule/") &&
+            !text.includes("Home") && !text.includes("Schedule") &&
+            text !== "HOME" && text !== "AWAY" &&
+            !text.match(/^(@|vs\.)/) &&
+            !text.match(/[WLT]\s+\d+-\d+/)) {
+          return text;
+        }
       }
-    }
-    // Last fallback: page title
-    return document.title.replace(/GameChanger/gi, "").replace(/\|/g, "").trim();
-  });
+      // Last fallback: page title
+      return document.title
+          .replace(/GameChanger/gi, "").replace(/\|/g, "").trim();
+    });
+  }
+  console.log("Team name extracted:", teamName);
 
   // Extract all game links from the schedule
   const gameLinks = await page.evaluate(() => {
@@ -270,8 +293,9 @@ async function scrapeGame(browser, gameInfo) {
 
   // ─── BOX SCORE ───
   const boxUrl = gameInfo.baseUrl + "/box-score";
+  console.log(`Game ${gameInfo.id}: loading box score from ${boxUrl}`);
   await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await delay(2000);
+  await delay(3000);
 
   // Get date info
   result.dateInfo = await page.evaluate(() => {
@@ -348,18 +372,42 @@ async function scrapeGame(browser, gameInfo) {
     const main = document.querySelector("main");
     if (!main) return {home: null, away: null};
 
-    // The box score has two team sections, each with LINEUP and PITCHING
     const text = main.innerText;
-
-    // Just get the full text — we'll parse it on the client side
-    // where the existing parser already knows how to handle this format
+    // Check if the page actually has lineup data (not just a loading state)
+    if (!text.includes("LINEUP") && !text.includes("AB")) {
+      return {fullText: "", note: "No box score data found on page"};
+    }
     return {fullText: text};
   });
 
+  console.log(`Game ${gameInfo.id}: box score ${
+    result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
+    "EMPTY"}`);
+
+  // If box score was empty, try one more time after a longer wait
+  if (!result.boxScore.fullText) {
+    console.log(`Game ${gameInfo.id}: retrying box score after delay...`);
+    await page.reload({waitUntil: "networkidle2", timeout: 30000});
+    await delay(5000);
+    result.boxScore = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      if (!main) return {home: null, away: null};
+      const text = main.innerText;
+      if (!text.includes("LINEUP") && !text.includes("AB")) {
+        return {fullText: "", note: "No box score data after retry"};
+      }
+      return {fullText: text};
+    });
+    console.log(`Game ${gameInfo.id}: retry box score ${
+      result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
+      "STILL EMPTY"}`);
+  }
+
   // ─── PLAY BY PLAY ───
   const playsUrl = gameInfo.baseUrl + "/plays";
+  console.log(`Game ${gameInfo.id}: loading plays from ${playsUrl}`);
   await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await delay(2000);
+  await delay(3000);
 
   // Scroll to load all plays
   let prevHeight = 0;
@@ -404,6 +452,51 @@ async function scrapeGame(browser, gameInfo) {
 
     return lines.join("\n");
   });
+
+  console.log(`Game ${gameInfo.id}: plays ${
+    result.plays ? result.plays.length + " chars" : "EMPTY"}`);
+
+  // If plays were empty, try one more time
+  if (!result.plays || result.plays.length < 50) {
+    console.log(`Game ${gameInfo.id}: retrying plays after delay...`);
+    await page.reload({waitUntil: "networkidle2", timeout: 30000});
+    await delay(5000);
+    // Scroll again
+    for (let i = 0; i < 10; i++) {
+      await page.evaluate(() =>
+        window.scrollTo(0, document.body.scrollHeight));
+      await delay(500);
+    }
+    result.plays = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      if (!main) return "";
+      const playsDiv = main.querySelector("h1");
+      if (!playsDiv) return main.innerText;
+      let inPlays = false;
+      const lines = [];
+      const walker = document.createTreeWalker(
+          main, NodeFilter.SHOW_TEXT, null,
+      );
+      let node;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent.trim();
+        if (text === "Plays") inPlays = true;
+        if (inPlays && text.length > 0 &&
+            text !== "All Plays" && text !== "Scoring Plays" &&
+            text !== "Outs" && text !== "Player" &&
+            text !== "Reverse Chronological" &&
+            text !== "Chronological" &&
+            text !== "Sign in to GameChanger" &&
+            !text.includes("see this team") &&
+            !text.includes("schedule, roster")) {
+          lines.push(text);
+        }
+      }
+      return lines.join("\n");
+    });
+    console.log(`Game ${gameInfo.id}: retry plays ${
+      result.plays ? result.plays.length + " chars" : "STILL EMPTY"}`);
+  }
 
   return result;
   } finally {
