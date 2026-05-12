@@ -779,7 +779,8 @@
         <h3 id="calModalTitle">Add Game</h3>
         <div class="field">
           <label>Team</label>
-          <select id="calGameTeam"></select>
+          <select id="calGameTeam" onchange="document.getElementById('calGameTeamCustom').style.display=this.value==='__custom__'?'block':'none'"></select>
+          <input type="text" id="calGameTeamCustom" placeholder="Enter team name" style="display:none;margin-top:0.4rem;width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.85rem;padding:0.5rem 0.6rem;outline:none;font-family:'Barlow',sans-serif;">
         </div>
         <div class="field">
           <label>Opponent</label>
@@ -1562,6 +1563,8 @@
     document.getElementById('calSaveBtn').textContent = 'Save Game';
     populateTeamDropdown();
     document.getElementById('calGameTeam').value = '';
+    document.getElementById('calGameTeamCustom').value = '';
+    document.getElementById('calGameTeamCustom').style.display = 'none';
     document.getElementById('calGameOpponent').value = '';
     document.getElementById('calGameDate').value = dateStr || '';
     document.getElementById('calGameTime').value = '';
@@ -1577,7 +1580,18 @@
     document.getElementById('calDeleteBtn').style.display = 'inline-flex';
     document.getElementById('calSaveBtn').textContent = 'Update Game';
     populateTeamDropdown();
-    document.getElementById('calGameTeam').value = game.team || '';
+    // Check if team matches a dropdown option; if not, use custom input
+    const sel = document.getElementById('calGameTeam');
+    const opts = Array.from(sel.options).map(o => o.value);
+    if (opts.includes(game.team)) {
+      sel.value = game.team || '';
+      document.getElementById('calGameTeamCustom').value = '';
+      document.getElementById('calGameTeamCustom').style.display = 'none';
+    } else {
+      sel.value = '__custom__';
+      document.getElementById('calGameTeamCustom').value = game.team || '';
+      document.getElementById('calGameTeamCustom').style.display = 'block';
+    }
     document.getElementById('calGameOpponent').value = game.opponent || '';
     document.getElementById('calGameDate').value = game.gameDate || '';
     document.getElementById('calGameTime').value = game.gameTime || '';
@@ -1591,13 +1605,14 @@
   }
 
   async function saveGame() {
-    const team = document.getElementById('calGameTeam').value;
+    let team = document.getElementById('calGameTeam').value;
+    if (team === '__custom__') team = document.getElementById('calGameTeamCustom').value.trim();
     const opponent = document.getElementById('calGameOpponent').value.trim();
     const gameDate = document.getElementById('calGameDate').value;
     const gameTime = document.getElementById('calGameTime').value;
     const location = document.getElementById('calGameLocation').value.trim();
 
-    if (!team || team === '__custom__') { alert('Please select a team.'); return; }
+    if (!team) { alert('Please select or enter a team name.'); return; }
     if (!opponent) { alert('Please enter an opponent.'); return; }
     if (!gameDate) { alert('Please select a game date.'); return; }
 
