@@ -257,14 +257,42 @@ exports.gcLogin = functions
             return;
           }
 
-          // Login succeeded — save cookies
-          console.log("gcLogin: login succeeded, saving cookies");
+          // Login succeeded — save cookies and extract GC-Token JWT
+          console.log("gcLogin: login succeeded, saving auth data");
           const cookies = await page.cookies();
-          await db.doc("gc_config/cookies").set({
+
+          // Extract GC-Token JWT by intercepting API requests
+          let gcToken = "";
+          try {
+            // Navigate to a page that triggers API calls with GC-Token
+            const client = await page.createCDPSession();
+            let capturedToken = "";
+            client.on("Network.requestWillBeSent", (params) => {
+              const gcTok = (params.request.headers || {})["GC-Token"] ||
+                  (params.request.headers || {})["gc-token"] || "";
+              if (gcTok && gcTok.length > 100) capturedToken = gcTok;
+            });
+            await client.send("Network.enable");
+            await page.goto("https://web.gc.com/", {
+              waitUntil: "networkidle2", timeout: 15000,
+            });
+            await delay(3000);
+            gcToken = capturedToken;
+            await client.detach();
+          } catch (e) {
+            console.log("gcLogin: error capturing GC-Token:", e.message);
+          }
+
+          const saveData = {
             cookies: JSON.stringify(cookies),
             savedAt: admin.firestore.FieldValue.serverTimestamp(),
             email: gcEmail,
-          });
+          };
+          if (gcToken) {
+            saveData.gcToken = gcToken;
+            console.log(`gcLogin: saved GC-Token JWT (${gcToken.length} chars)`);
+          }
+          await db.doc("gc_config/cookies").set(saveData);
           await db.doc("gc_config/login_session").set({
             status: "success",
           });
@@ -324,9 +352,9 @@ exports.scrapeGameChanger = functions
           return;
         }
 
-        // Load saved GC cookies and localStorage auth tokens
+        // Load saved GC auth (JWT token for API calls + cookies for schedule)
         let gcCookies = null;
-        let gcLocalStorage = null;
+        let gcToken = null;
         try {
           const cookieDoc = await db.doc("gc_config/cookies").get();
           if (cookieDoc.exists) {
@@ -335,13 +363,13 @@ exports.scrapeGameChanger = functions
               gcCookies = JSON.parse(data.cookies);
               console.log(`Loaded ${gcCookies.length} saved GC cookies`);
             }
-            if (data.localStorage) {
-              gcLocalStorage = JSON.parse(data.localStorage);
-              console.log(`Loaded ${Object.keys(gcLocalStorage).length} localStorage items`);
+            if (data.gcToken) {
+              gcToken = data.gcToken;
+              console.log(`Loaded GC-Token JWT (${gcToken.length} chars)`);
             }
           }
-          if (!gcCookies && !gcLocalStorage) {
-            console.log("No saved GC auth found — data may be anonymized");
+          if (!gcToken) {
+            console.log("No GC-Token found — data may be anonymized");
           }
         } catch (e) {
           console.log("Error loading auth:", e.message);
@@ -355,8 +383,11 @@ exports.scrapeGameChanger = functions
           browser = await launchBrowser();
           console.log("Browser launched successfully");
 
-          const result = await scrapeTeam(browser, teamUrl, limit, gcCookies, gcLocalStorage);
-          console.log("Scrape complete. Games found:", result.games ? result.games.length : 0);
+          const result = await scrapeTeam(
+              browser, teamUrl, limit, gcCookies, gcToken,
+          );
+          console.log("Scrape complete. Games found:",
+              result.games ? result.games.length : 0);
           res.json(result);
         } catch (err) {
           console.error("Scrape error:", err.message, err.stack);
@@ -370,7 +401,7 @@ exports.scrapeGameChanger = functions
 /**
  * Scrape the team schedule to find all game links, then scrape each game.
  */
-async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcLocalStorage) {
+async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
   const page = await browser.newPage();
   await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -553,16 +584,20 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcLocalStorage)
 
   await page.close();
 
+  // Extract team ID from URL for API calls
+  const teamIdMatch = teamUrl.match(/\/teams\/([^/]+)/);
+  const teamId = teamIdMatch ? teamIdMatch[1] : null;
+
   const gamesToScrape = gameLinks.slice(0, maxGames);
   const games = [];
 
   for (let i = 0; i < gamesToScrape.length; i++) {
     const game = gamesToScrape[i];
     try {
-      const gameData = await scrapeGame(browser, game, gcCookies, gcLocalStorage);
+      const gameData = await fetchGameFromAPI(game, gcToken, teamId);
       games.push(gameData);
     } catch (err) {
-      console.error(`Error scraping game ${game.id}:`, err.message);
+      console.error(`Error fetching game ${game.id}:`, err.message);
       games.push({
         id: game.id,
         error: err.message,
@@ -581,322 +616,257 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcLocalStorage)
 }
 
 /**
- * Clear all browser state for a page using CDP commands.
- * This clears HTTP cache, cookies, service workers, and all site storage
- * to ensure each game gets a completely fresh load.
+ * Fetch a single game's data from the GC API.
+ * Uses direct API calls instead of browser rendering — much faster and
+ * more reliable than scraping the React SPA.
  */
-async function clearBrowserState(page) {
-  const client = await page.createCDPSession();
-  try {
-    await client.send("Network.clearBrowserCache");
-    await client.send("Network.clearBrowserCookies");
-    // Clear cache and service workers but preserve localStorage (auth tokens)
-    const clearTypes = "cache_storage,service_workers,indexeddb,websql";
-    await client.send("Storage.clearDataForOrigin", {
-      origin: "https://web.gc.com",
-      storageTypes: clearTypes,
-    });
-    await client.send("Storage.clearDataForOrigin", {
-      origin: "https://www.gc.com",
-      storageTypes: clearTypes,
-    });
-  } catch (e) {
-    console.log("CDP clear warning (non-fatal):", e.message);
-  } finally {
-    await client.detach();
+async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
+  const gameId = gameInfo.id;
+  const apiBase = "https://api.team-manager.gc.com";
+  const headers = {"Accept": "application/json"};
+  if (gcToken) headers["GC-Token"] = gcToken;
+
+  console.log(`Game ${gameId}: fetching via API`);
+
+  // Fetch game details (date, score, line score)
+  const detailsRes = await fetch(
+      `${apiBase}/public/game-stream-processing/${gameId}/details?include=line_score`,
+      {headers},
+  );
+  const details = detailsRes.ok ? await detailsRes.json() : {};
+
+  // Fetch boxscore (players + batting/pitching stats)
+  const boxRes = await fetch(
+      `${apiBase}/game-stream-processing/${gameId}/boxscore`,
+      {headers},
+  );
+  const boxData = boxRes.ok ? await boxRes.json() : {};
+
+  // Fetch play-by-play
+  const playsRes = await fetch(
+      `${apiBase}/game-stream-processing/${gameId}/plays`,
+      {headers},
+  );
+  const playsData = playsRes.ok ? await playsRes.json() : {};
+
+  // Build player lookup from boxscore data
+  const allPlayers = {};
+  for (const [tid, tdata] of Object.entries(boxData)) {
+    if (tdata.players) {
+      for (const p of tdata.players) {
+        allPlayers[p.id] = `${p.first_name} ${p.last_name}`;
+      }
+    }
   }
+  // Also add from plays data
+  if (playsData.team_players) {
+    for (const [tid, players] of Object.entries(playsData.team_players)) {
+      for (const p of players) {
+        allPlayers[p.id] = `${p.first_name} ${p.last_name}`;
+      }
+    }
+  }
+
+  // Determine home/away teams
+  const opponentName = details.opponent_team?.name || "";
+  const homeAway = details.home_away || "home";
+
+  // Build box score text in the format the existing parser expects
+  const boxText = formatBoxScoreText(
+      boxData, details, allPlayers, teamId, gameInfo.text,
+  );
+
+  // Build play-by-play text
+  const playsText = formatPlaysText(
+      playsData, allPlayers, details,
+  );
+
+  // Format date info
+  let dateInfo = "";
+  if (details.start_ts) {
+    const d = new Date(details.start_ts);
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    dateInfo = `${days[d.getDay()]} ${months[d.getMonth()]} ${d.getDate()}`;
+  }
+
+  console.log(`Game ${gameId}: box ${boxText.length} chars, ` +
+      `plays ${playsText.length} chars`);
+
+  return {
+    id: gameId,
+    label: gameInfo.text,
+    dateInfo,
+    teams: {
+      home: homeAway === "home" ? "" : opponentName,
+      away: homeAway === "away" ? "" : opponentName,
+    },
+    linescore: details.line_score || null,
+    boxScore: {fullText: boxText},
+    plays: playsText,
+  };
 }
 
 /**
- * Scrape a single game's box score and play-by-play.
- * Uses CDP to clear all cached state before each game to prevent
- * the GC SPA from serving stale data.
+ * Format boxscore API data into text that matches the existing parser.
  */
-async function scrapeGame(browser, gameInfo, gcCookies, gcLocalStorage) {
-  const page = await browser.newPage();
-  try {
-  await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/120.0.0.0 Safari/537.36",
-  );
+function formatBoxScoreText(boxData, details, allPlayers, teamId) {
+  const lines = [];
 
-  // Clear cached state (preserves localStorage) before loading this game
-  await clearBrowserState(page);
-  await page.setCacheEnabled(false);
+  // Date header
+  if (details.start_ts) {
+    const d = new Date(details.start_ts);
+    lines.push(d.toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    }));
+  }
+  lines.push("FINAL");
 
-  // Re-inject GC cookies after clearing state
-  if (gcCookies && gcCookies.length > 0) {
-    await page.setCookie(...gcCookies);
+  // Line score
+  if (details.line_score) {
+    const ls = details.line_score;
+    const innings = ls.team?.scores || [];
+    lines.push(innings.join("\t"));
+    lines.push("R\tH\tE");
+    const tt = ls.team?.totals || [];
+    const ot = ls.opponent_team?.totals || [];
+    lines.push(tt.join("\t"));
+    lines.push(ot.join("\t"));
   }
 
-  // Inject localStorage auth tokens
-  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
-    await page.goto("https://web.gc.com/favicon.ico", {
-      waitUntil: "load", timeout: 10000,
-    }).catch(() => {});
-    await page.evaluate((items) => {
-      for (const [key, value] of Object.entries(items)) {
-        localStorage.setItem(key, value);
-      }
-    }, gcLocalStorage);
-  }
-
-  const result = {
-    id: gameInfo.id,
-    label: gameInfo.text,
-    dateInfo: "",
-    teams: {home: "", away: ""},
-    linescore: null,
-    boxScore: {home: null, away: null},
-    plays: "",
-  };
-
-  // ─── BOX SCORE ───
-  const boxUrl = gameInfo.baseUrl + "/box-score";
-  console.log(`Game ${gameInfo.id}: loading box score from ${boxUrl}`);
-  // Navigate to blank, clear state, re-inject auth, then load box score
-  await page.goto("about:blank", {waitUntil: "load"});
-  await clearBrowserState(page);
-  if (gcCookies && gcCookies.length > 0) await page.setCookie(...gcCookies);
-  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
-    await page.goto("https://web.gc.com/favicon.ico", {
-      waitUntil: "load", timeout: 10000,
-    }).catch(() => {});
-    await page.evaluate((items) => {
-      for (const [key, value] of Object.entries(items)) {
-        localStorage.setItem(key, value);
-      }
-    }, gcLocalStorage);
-  }
-  await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await delay(3000);
-
-  // Get date info
-  result.dateInfo = await page.evaluate(() => {
-    const el = document.querySelector("main");
-    if (!el) return "";
-    const text = el.innerText;
-    const match = text.match(
-        /(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w+\s+\d+.*?(AM|PM)\s+\w+/,
-    );
-    return match ? match[0] : "";
-  });
-
-  // Get team names from box score page links
-  const teamNames = await page.evaluate(() => {
-    const els = document.querySelectorAll("main a[href*=\"/teams/\"]");
-    const navTabs = new Set([
-      "RECAP", "BOX SCORE", "PLAYS", "VIDEOS", "INFO",
-      "HOME", "AWAY", "SCHEDULE", "STATS", "ROSTER",
-    ]);
-    const names = [];
-    els.forEach((el) => {
-      const t = el.innerText.trim();
-      if (t.length > 3 && !navTabs.has(t.toUpperCase())) {
-        names.push(t);
-      }
-    });
-    return names;
-  });
-  if (teamNames.length >= 2) {
-    result.teams.home = teamNames[0];
-    result.teams.away = teamNames[1];
-  } else if (teamNames.length === 1) {
-    result.teams.home = teamNames[0];
-  }
-
-  // Get linescore
-  result.linescore = await page.evaluate(() => {
-    const tables = document.querySelectorAll("main table");
-    if (tables.length < 3) return null;
-
-    // Team abbreviations
-    const teamRows = tables[0].querySelectorAll("tr");
-    const teamAbbrs = [];
-    teamRows.forEach((r) => {
-      const td = r.querySelector("td");
-      if (td) teamAbbrs.push(td.innerText.trim());
-    });
-
-    // Inning scores
-    const inningHeaders = Array.from(tables[1].querySelectorAll("th"))
-        .map((th) => th.innerText.trim());
-    const inningRows = tables[1].querySelectorAll("tbody tr");
-    const innings = [];
-    inningRows.forEach((r) => {
-      innings.push(
-          Array.from(r.querySelectorAll("td"))
-              .map((td) => td.innerText.trim()),
-      );
-    });
-
-    // R/H/E
-    const rheHeaders = Array.from(tables[2].querySelectorAll("th"))
-        .map((th) => th.innerText.trim());
-    const rheRows = tables[2].querySelectorAll("tbody tr");
-    const rhe = [];
-    rheRows.forEach((r) => {
-      rhe.push(
-          Array.from(r.querySelectorAll("td"))
-              .map((td) => td.innerText.trim()),
-      );
-    });
-
-    return {teamAbbrs, inningHeaders, innings, rheHeaders, rhe};
-  });
-
-  // Get structured box score data
-  result.boxScore = await page.evaluate(() => {
-    const main = document.querySelector("main");
-    if (!main) return {home: null, away: null};
-
-    const text = main.innerText;
-    // Check if the page actually has lineup data (not just a loading state)
-    if (!text.includes("LINEUP") && !text.includes("AB")) {
-      return {fullText: "", note: "No box score data found on page"};
-    }
-    return {fullText: text};
-  });
-
-  // Log box score details to verify each game has unique data
-  const currentBoxUrl = await page.url();
-  const boxPreview = (result.boxScore.fullText || "").substring(0, 120);
-  console.log(`Game ${gameInfo.id}: box score ${
-    result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
-    "EMPTY"} (url: ${currentBoxUrl})`);
-  console.log(`Game ${gameInfo.id}: preview: ${boxPreview}`);
-
-  // If box score was empty, try one more time after a longer wait
-  if (!result.boxScore.fullText) {
-    console.log(`Game ${gameInfo.id}: retrying box score after delay...`);
-    await page.reload({waitUntil: "networkidle2", timeout: 30000});
-    await delay(5000);
-    result.boxScore = await page.evaluate(() => {
-      const main = document.querySelector("main");
-      if (!main) return {home: null, away: null};
-      const text = main.innerText;
-      if (!text.includes("LINEUP") && !text.includes("AB")) {
-        return {fullText: "", note: "No box score data after retry"};
-      }
-      return {fullText: text};
-    });
-    console.log(`Game ${gameInfo.id}: retry box score ${
-      result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
-      "STILL EMPTY"}`);
-  }
-
-  // ─── PLAY BY PLAY ───
-  const playsUrl = gameInfo.baseUrl + "/plays";
-  console.log(`Game ${gameInfo.id}: loading plays from ${playsUrl}`);
-  // Clear state, re-inject auth, then load plays page
-  await page.goto("about:blank", {waitUntil: "load"});
-  await clearBrowserState(page);
-  if (gcCookies && gcCookies.length > 0) await page.setCookie(...gcCookies);
-  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
-    await page.goto("https://web.gc.com/favicon.ico", {
-      waitUntil: "load", timeout: 10000,
-    }).catch(() => {});
-    await page.evaluate((items) => {
-      for (const [key, value] of Object.entries(items)) {
-        localStorage.setItem(key, value);
-      }
-    }, gcLocalStorage);
-  }
-  await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await delay(3000);
-
-  // Scroll to load all plays
-  let prevHeight = 0;
-  for (let i = 0; i < 20; i++) {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await delay(500);
-    const currHeight = await page.evaluate(() => document.body.scrollHeight);
-    if (currHeight === prevHeight) break;
-    prevHeight = currHeight;
-  }
-
-  // Extract structured play-by-play
-  result.plays = await page.evaluate(() => {
-    const main = document.querySelector("main");
-    if (!main) return "";
-
-    // Get the plays section text
-    const playsDiv = main.querySelector("h1");
-    if (!playsDiv) return main.innerText;
-
-    // Get everything after the "Plays" header
-    let inPlays = false;
-    const lines = [];
-    const walker = document.createTreeWalker(
-        main, NodeFilter.SHOW_TEXT, null,
-    );
-    let node;
-    while ((node = walker.nextNode())) {
-      const text = node.textContent.trim();
-      if (text === "Plays") inPlays = true;
-      if (inPlays && text.length > 0 &&
-          text !== "All Plays" && text !== "Scoring Plays" &&
-          text !== "Outs" && text !== "Player" &&
-          text !== "Reverse Chronological" &&
-          text !== "Chronological" &&
-          text !== "Sign in to GameChanger" &&
-          !text.includes("see this team") &&
-          !text.includes("schedule, roster")) {
-        lines.push(text);
+  // Format each team's batting and pitching
+  for (const [tid, tdata] of Object.entries(boxData)) {
+    const players = {};
+    if (tdata.players) {
+      for (const p of tdata.players) {
+        players[p.id] = p;
       }
     }
 
-    return lines.join("\n");
-  });
+    const groups = tdata.groups || [];
+    for (const group of groups) {
+      const cat = group.category || "";
 
-  console.log(`Game ${gameInfo.id}: plays ${
-    result.plays ? result.plays.length + " chars" : "EMPTY"}`);
+      if (cat === "lineup") {
+        // Batting section
+        lines.push("LINEUP\tAB\tR\tH\tRBI\tBB\tSO");
+        for (const s of (group.stats || [])) {
+          const p = players[s.player_id] || {};
+          const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+          const num = p.number || "";
+          const pos = s.player_text || "";
+          const st = s.stats || {};
+          lines.push(`${name}\n#${num} ${pos}\n${st.AB || 0}\t` +
+              `${st.R || 0}\t${st.H || 0}\t${st.RBI || 0}\t` +
+              `${st.BB || 0}\t${st.SO || 0}`);
+        }
+        // Team totals
+        const ts = group.team_stats || {};
+        lines.push(`TEAM\t${ts.AB || 0}\t${ts.R || 0}\t${ts.H || 0}\t` +
+            `${ts.RBI || 0}\t${ts.BB || 0}\t${ts.SO || 0}`);
 
-  // If plays were empty, try one more time
-  if (!result.plays || result.plays.length < 50) {
-    console.log(`Game ${gameInfo.id}: retrying plays after delay...`);
-    await page.reload({waitUntil: "networkidle2", timeout: 30000});
-    await delay(5000);
-    // Scroll again
-    for (let i = 0; i < 10; i++) {
-      await page.evaluate(() =>
-        window.scrollTo(0, document.body.scrollHeight));
-      await delay(500);
-    }
-    result.plays = await page.evaluate(() => {
-      const main = document.querySelector("main");
-      if (!main) return "";
-      const playsDiv = main.querySelector("h1");
-      if (!playsDiv) return main.innerText;
-      let inPlays = false;
-      const lines = [];
-      const walker = document.createTreeWalker(
-          main, NodeFilter.SHOW_TEXT, null,
-      );
-      let node;
-      while ((node = walker.nextNode())) {
-        const text = node.textContent.trim();
-        if (text === "Plays") inPlays = true;
-        if (inPlays && text.length > 0 &&
-            text !== "All Plays" && text !== "Scoring Plays" &&
-            text !== "Outs" && text !== "Player" &&
-            text !== "Reverse Chronological" &&
-            text !== "Chronological" &&
-            text !== "Sign in to GameChanger" &&
-            !text.includes("see this team") &&
-            !text.includes("schedule, roster")) {
-          lines.push(text);
+        // Extra stats (HR, 2B, TB, SB, etc.)
+        for (const extra of (group.extra || [])) {
+          const statName = extra.stat_name || "";
+          const entries = (extra.stats || []).map((e) => {
+            const p = players[e.player_id] || {};
+            const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+            return e.value > 1 ? `${name} ${e.value}` : name;
+          });
+          if (entries.length > 0) {
+            lines.push(`${statName}: ${entries.join(", ")}`);
+          }
+        }
+      } else if (cat === "pitching") {
+        // Pitching section
+        lines.push("PITCHING\tIP\tH\tR\tER\tBB\tSO");
+        for (const s of (group.stats || [])) {
+          const p = players[s.player_id] || {};
+          const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+          const num = p.number || "";
+          const st = s.stats || {};
+          lines.push(`${name}\n#${num}\n${st.IP || 0}\t` +
+              `${st.H || 0}\t${st.R || 0}\t${st.ER || 0}\t` +
+              `${st.BB || 0}\t${st.SO || 0}`);
+        }
+        const ts = group.team_stats || {};
+        lines.push(`TEAM\t${ts.IP || 0}\t${ts.H || 0}\t${ts.R || 0}\t` +
+            `${ts.ER || 0}\t${ts.BB || 0}\t${ts.SO || 0}`);
+
+        // Pitching extras (Pitches-Strikes, Batters Faced, etc.)
+        for (const extra of (group.extra || [])) {
+          const statName = extra.stat_name || "";
+          const entries = (extra.stats || []).map((e) => {
+            const p = players[e.player_id] || {};
+            const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+            return `${name} ${e.value}`;
+          });
+          if (entries.length > 0) {
+            lines.push(`${statName}: ${entries.join(", ")}`);
+          }
         }
       }
-      return lines.join("\n");
-    });
-    console.log(`Game ${gameInfo.id}: retry plays ${
-      result.plays ? result.plays.length + " chars" : "STILL EMPTY"}`);
+    }
   }
 
-  return result;
-  } finally {
-    await page.close();
+  return lines.join("\n");
+}
+
+/**
+ * Format play-by-play API data into text that matches the existing parser.
+ */
+function formatPlaysText(playsData, allPlayers) {
+  if (!playsData.plays || playsData.plays.length === 0) return "";
+
+  const lines = [];
+  let currentInning = 0;
+  let currentHalf = "";
+
+  for (const play of playsData.plays) {
+    // Inning headers
+    if (play.inning !== currentInning || play.half !== currentHalf) {
+      currentInning = play.inning;
+      currentHalf = play.half;
+      const halfLabel = currentHalf === "top" ? "Top" : "Bottom";
+      lines.push(`${halfLabel} ${currentInning}`);
+    }
+
+    // Play name
+    const playName = play.name_template?.template || "";
+    lines.push(playName);
+
+    // Score if changed
+    if (play.did_score_change) {
+      lines.push(`${play.away_score}-${play.home_score}`);
+    }
+
+    // Pitch sequence
+    const pitches = (play.at_plate_details || [])
+        .map((d) => d.template || "").filter((t) => t);
+    if (pitches.length > 0) {
+      lines.push(pitches.join(", "));
+    }
+
+    // Play description — resolve player IDs in templates
+    for (const detail of (play.final_details || [])) {
+      let text = detail.template || "";
+      // Replace ${player-id} with player names
+      text = text.replace(/\$\{([^}]+)\}/g, (match, id) => {
+        return allPlayers[id] || match;
+      });
+      if (text) lines.push(text);
+    }
+
+    // Messages (lineup changes, etc.)
+    for (const msg of (play.messages || [])) {
+      let text = msg.template || "";
+      text = text.replace(/\$\{([^}]+)\}/g, (match, id) => {
+        return allPlayers[id] || match;
+      });
+      if (text) lines.push(text);
+    }
   }
+
+  return lines.join("\n");
 }
