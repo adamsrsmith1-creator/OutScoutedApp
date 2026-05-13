@@ -143,26 +143,27 @@ exports.gcLogin = functions
           await page.type("input[name=\"email\"]", gcEmail, {delay: 50});
           await delay(500);
 
-          // Click Continue
-          const continueBtn = await page.$("button[type=\"button\"]");
-          if (continueBtn) {
-            await continueBtn.click();
-          } else {
-            await page.keyboard.press("Enter");
-          }
-          await delay(3000);
+          // Click Continue button
+          console.log("gcLogin: clicking Continue");
+          await page.evaluate(() => {
+            const btns = Array.from(
+                document.querySelectorAll("button[type=\"button\"]"),
+            );
+            const continueBtn = btns.find((b) =>
+              b.textContent.trim().toLowerCase() === "continue",
+            );
+            if (continueBtn) continueBtn.click();
+          });
+          await delay(1000);
+          // Wait for the password page to load
+          console.log("gcLogin: waiting for password page");
+          await page.waitForSelector(
+              "input[name=\"password\"]", {timeout: 15000},
+          );
+          await delay(2000);
 
-          // Step 3: Check if we're on the password page
+          // Step 3: Check if code field exists (2FA required)
           const hasCodeField = await page.$("input[name=\"code\"]");
-          const hasPasswordField = await page.$("input[name=\"password\"]");
-
-          if (!hasPasswordField) {
-            throw new Error("Login page did not load password field");
-          }
-
-          // Enter password
-          console.log("gcLogin: entering password");
-          await page.type("input[name=\"password\"]", gcPassword, {delay: 50});
 
           if (hasCodeField) {
             // 2FA code required — signal the client and poll for code
@@ -197,17 +198,50 @@ exports.gcLogin = functions
               return;
             }
 
-            // Enter the verification code
-            console.log("gcLogin: entering verification code");
-            await page.type("input[name=\"code\"]", code, {delay: 50});
+            // Enter code using click + clear + type for React compatibility
+            console.log("gcLogin: entering verification code:", code);
+            await page.click("input[name=\"code\"]");
+            await page.evaluate(() => {
+              document.querySelector("input[name=\"code\"]").value = "";
+            });
+            await page.type("input[name=\"code\"]", code, {delay: 80});
+            // Dispatch events so React registers the change
+            await page.evaluate((val) => {
+              const el = document.querySelector("input[name=\"code\"]");
+              const nativeSet = Object.getOwnPropertyDescriptor(
+                  window.HTMLInputElement.prototype, "value",
+              ).set;
+              nativeSet.call(el, val);
+              el.dispatchEvent(new Event("input", {bubbles: true}));
+              el.dispatchEvent(new Event("change", {bubbles: true}));
+            }, code);
+            await delay(500);
           }
 
-          // Click Sign in
+          // Enter password using click + clear + type
+          console.log("gcLogin: entering password");
+          await page.click("input[name=\"password\"]");
+          await page.evaluate(() => {
+            document.querySelector("input[name=\"password\"]").value = "";
+          });
+          await page.type("input[name=\"password\"]", gcPassword, {delay: 50});
+          await page.evaluate((val) => {
+            const el = document.querySelector("input[name=\"password\"]");
+            const nativeSet = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, "value",
+            ).set;
+            nativeSet.call(el, val);
+            el.dispatchEvent(new Event("input", {bubbles: true}));
+            el.dispatchEvent(new Event("change", {bubbles: true}));
+          }, gcPassword);
+          await delay(500);
+
+          // Click Sign in button
           console.log("gcLogin: clicking Sign in");
-          const signInBtn = await page.$("button[type=\"submit\"]");
-          if (signInBtn) {
-            await signInBtn.click();
-          }
+          await page.evaluate(() => {
+            const btn = document.querySelector("button[type=\"submit\"]");
+            if (btn) btn.click();
+          });
           await delay(5000);
 
           // Check if login succeeded by looking at the URL
