@@ -1821,6 +1821,12 @@
           btn.disabled = false;
           btn.textContent = 'Login to GameChanger';
           if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
+        } else {
+          statusEl.innerHTML = '<span style="color:#f87171;">Login error: ' + (data.error || 'Unexpected response') + '</span>';
+          document.getElementById('gcCodeWrap').style.display = 'none';
+          btn.disabled = false;
+          btn.textContent = 'Login to GameChanger';
+          if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
         }
       }).catch((err) => {
         statusEl.innerHTML = '<span style="color:#f87171;">Login error: ' + err.message + '</span>';
