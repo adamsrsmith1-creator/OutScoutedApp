@@ -415,10 +415,25 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
     await page.setCookie(...gcCookies);
   }
 
+  // Intercept network requests to capture a fresh GC-Token JWT
+  let capturedToken = "";
+  try {
+    const client = await page.createCDPSession();
+    client.on("Network.requestWillBeSent", (params) => {
+      const tok = (params.request.headers || {})["GC-Token"] ||
+          (params.request.headers || {})["gc-token"] || "";
+      if (tok && tok.length > 100 && !capturedToken) {
+        capturedToken = tok;
+      }
+    });
+    await client.send("Network.enable");
+  } catch (e) {
+    console.log("CDP network interception warning:", e.message);
+  }
+
   // Build schedule URL
   let scheduleUrl = teamUrl.replace(/\/+$/, "");
   if (!scheduleUrl.includes("/schedule")) {
-    // If URL has a season slug, we need to append /schedule to the full path
     scheduleUrl += "/schedule";
   }
 
@@ -584,6 +599,36 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
 
   await page.close();
 
+  // Use a captured fresh token if available (from network interception)
+  if (capturedToken) {
+    console.log("Captured fresh GC-Token from schedule page network requests");
+    gcToken = capturedToken;
+    // Save the fresh token to Firestore for future use
+    try {
+      await db.doc("gc_config/cookies").update({
+        gcToken: capturedToken,
+        savedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log("Saved fresh GC-Token to Firestore");
+    } catch (e) {
+      console.log("Error saving fresh token:", e.message);
+    }
+  }
+
+  // Validate token before making API calls
+  if (gcToken) {
+    const testRes = await fetch(
+        "https://api.team-manager.gc.com/me/user",
+        {headers: {"GC-Token": gcToken, "Accept": "application/json"}},
+    );
+    if (!testRes.ok) {
+      console.log(`GC-Token validation failed (${testRes.status}) — ` +
+          "data may have anonymized player names");
+    } else {
+      console.log("GC-Token validated successfully");
+    }
+  }
+
   // Extract team ID from URL for API calls
   const teamIdMatch = teamUrl.match(/\/teams\/([^/]+)/);
   const teamId = teamIdMatch ? teamIdMatch[1] : null;
@@ -640,6 +685,9 @@ async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
       `${apiBase}/game-stream-processing/${gameId}/boxscore`,
       {headers},
   );
+  if (!boxRes.ok) {
+    console.log(`Game ${gameId}: boxscore API returned ${boxRes.status}`);
+  }
   const boxData = boxRes.ok ? await boxRes.json() : {};
 
   // Fetch play-by-play
@@ -647,6 +695,9 @@ async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
       `${apiBase}/game-stream-processing/${gameId}/plays`,
       {headers},
   );
+  if (!playsRes.ok) {
+    console.log(`Game ${gameId}: plays API returned ${playsRes.status}`);
+  }
   const playsData = playsRes.ok ? await playsRes.json() : {};
 
   // Build player lookup from boxscore data
