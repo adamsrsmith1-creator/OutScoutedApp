@@ -270,19 +270,48 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
 }
 
 /**
+ * Clear all browser state for a page using CDP commands.
+ * This clears HTTP cache, cookies, service workers, and all site storage
+ * to ensure each game gets a completely fresh load.
+ */
+async function clearBrowserState(page) {
+  const client = await page.createCDPSession();
+  try {
+    await client.send("Network.clearBrowserCache");
+    await client.send("Network.clearBrowserCookies");
+    await client.send("Storage.clearDataForOrigin", {
+      origin: "https://web.gc.com",
+      storageTypes: "all",
+    });
+    // Unregister any service workers for gc.com
+    await client.send("Storage.clearDataForOrigin", {
+      origin: "https://www.gc.com",
+      storageTypes: "all",
+    });
+  } catch (e) {
+    console.log("CDP clear warning (non-fatal):", e.message);
+  } finally {
+    await client.detach();
+  }
+}
+
+/**
  * Scrape a single game's box score and play-by-play.
- * Uses an incognito browser context per game to ensure completely isolated
- * storage — no shared service workers, HTTP cache, or SPA state between games.
+ * Uses CDP to clear all cached state before each game to prevent
+ * the GC SPA from serving stale data.
  */
 async function scrapeGame(browser, gameInfo) {
-  const context = await browser.createBrowserContext();
-  const page = await context.newPage();
+  const page = await browser.newPage();
   try {
   await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
       "AppleWebKit/537.36 (KHTML, like Gecko) " +
       "Chrome/120.0.0.0 Safari/537.36",
   );
+
+  // Clear all cached state before loading this game
+  await clearBrowserState(page);
+  await page.setCacheEnabled(false);
 
   const result = {
     id: gameInfo.id,
@@ -297,6 +326,9 @@ async function scrapeGame(browser, gameInfo) {
   // ─── BOX SCORE ───
   const boxUrl = gameInfo.baseUrl + "/box-score";
   console.log(`Game ${gameInfo.id}: loading box score from ${boxUrl}`);
+  // Navigate to blank first, then clear state again before the real URL
+  await page.goto("about:blank", {waitUntil: "load"});
+  await clearBrowserState(page);
   await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
@@ -417,6 +449,9 @@ async function scrapeGame(browser, gameInfo) {
   // ─── PLAY BY PLAY ───
   const playsUrl = gameInfo.baseUrl + "/plays";
   console.log(`Game ${gameInfo.id}: loading plays from ${playsUrl}`);
+  // Clear state again before loading plays page
+  await page.goto("about:blank", {waitUntil: "load"});
+  await clearBrowserState(page);
   await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
@@ -512,6 +547,5 @@ async function scrapeGame(browser, gameInfo) {
   return result;
   } finally {
     await page.close();
-    await context.close();
   }
 }
