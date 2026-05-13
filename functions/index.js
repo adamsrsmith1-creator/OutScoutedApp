@@ -194,59 +194,42 @@ exports.gcLogin = functions
               return;
             }
 
-            // Enter code using click + clear + type for React compatibility
+            // Enter code — simple click + type (matches working Playwright test)
             console.log("gcLogin: entering verification code:", code);
-            await page.click("input[name=\"code\"]");
-            await page.evaluate(() => {
-              document.querySelector("input[name=\"code\"]").value = "";
-            });
-            await page.type("input[name=\"code\"]", code, {delay: 80});
-            // Dispatch events so React registers the change
-            await page.evaluate((val) => {
-              const el = document.querySelector("input[name=\"code\"]");
-              const nativeSet = Object.getOwnPropertyDescriptor(
-                  window.HTMLInputElement.prototype, "value",
-              ).set;
-              nativeSet.call(el, val);
-              el.dispatchEvent(new Event("input", {bubbles: true}));
-              el.dispatchEvent(new Event("change", {bubbles: true}));
-            }, code);
-            await delay(500);
+            const codeField = await page.$("input[name=\"code\"]");
+            await codeField.click({clickCount: 3}); // select any existing text
+            await codeField.type(code, {delay: 80});
+            await delay(300);
+
+            // Log what the code field contains
+            const codeVal = await page.$eval(
+                "input[name=\"code\"]", (el) => el.value,
+            );
+            console.log("gcLogin: code field value after typing:", codeVal);
           }
 
-          // Enter password using click + clear + type
+          // Enter password — simple click + type
           console.log("gcLogin: entering password");
-          await page.click("input[name=\"password\"]");
-          await page.evaluate(() => {
-            document.querySelector("input[name=\"password\"]").value = "";
-          });
-          await page.type("input[name=\"password\"]", gcPassword, {delay: 50});
-          await page.evaluate((val) => {
-            const el = document.querySelector("input[name=\"password\"]");
-            const nativeSet = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, "value",
-            ).set;
-            nativeSet.call(el, val);
-            el.dispatchEvent(new Event("input", {bubbles: true}));
-            el.dispatchEvent(new Event("change", {bubbles: true}));
-          }, gcPassword);
-          await delay(500);
+          const pwField = await page.$("input[name=\"password\"]");
+          await pwField.click({clickCount: 3}); // select any existing text
+          await pwField.type(gcPassword, {delay: 50});
+          await delay(300);
 
-          // Click Sign in — find by text to avoid hitting Resend/other btns
-          console.log("gcLogin: clicking Sign in");
-          await page.evaluate(() => {
-            const btns = Array.from(document.querySelectorAll("button"));
-            const signIn = btns.find((b) =>
-              b.textContent.trim().toLowerCase() === "sign in",
-            );
-            if (signIn) {
-              signIn.click();
-            } else {
-              // Fallback: submit the form directly
-              const form = document.querySelector("form");
-              if (form) form.requestSubmit();
-            }
+          // Log page state before clicking Sign In
+          const pageText = await page.evaluate(() => {
+            return document.querySelector("main").innerText.substring(0, 500);
           });
+          console.log("gcLogin: page text before submit:", pageText);
+
+          // Click Sign in button directly
+          console.log("gcLogin: clicking Sign in");
+          const signInBtn = await page.$("button[type=\"submit\"]");
+          if (signInBtn) {
+            await signInBtn.click();
+          } else {
+            console.log("gcLogin: no submit button found, pressing Enter");
+            await page.keyboard.press("Enter");
+          }
           await delay(5000);
 
           // Check if login succeeded by looking at the URL
@@ -254,24 +237,23 @@ exports.gcLogin = functions
           console.log("gcLogin: post-login URL:", currentUrl);
 
           if (currentUrl.includes("/login")) {
-            // Still on login page — check for error messages
+            // Still on login page — capture full error details
             const errorText = await page.evaluate(() => {
               const el = document.querySelector("main");
               return el ? el.innerText : "";
             });
-            const hasInvalid = errorText.includes("Invalid") ||
-                errorText.includes("incorrect") ||
-                errorText.includes("error");
+            console.log("gcLogin: FAILED - still on login page. Page text:",
+                errorText.substring(0, 500));
+            const errorMsg = errorText.includes("new verification code") ?
+                "Code expired or invalid — GC sent a new code" :
+                errorText.includes("incorrect") ?
+                    "Email or password incorrect" :
+                    "Login failed: " + errorText.substring(0, 200);
             await db.doc("gc_config/login_session").set({
               status: "failed",
-              error: hasInvalid ?
-                  "Invalid credentials or code" : "Login did not redirect",
+              error: errorMsg,
             });
-            res.json({
-              status: "failed",
-              message: hasInvalid ?
-                  "Invalid credentials or code" : "Login did not redirect",
-            });
+            res.json({status: "failed", message: errorMsg});
             return;
           }
 
