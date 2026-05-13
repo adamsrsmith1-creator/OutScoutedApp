@@ -143,18 +143,14 @@ exports.gcLogin = functions
           await page.type("input[name=\"email\"]", gcEmail, {delay: 50});
           await delay(500);
 
-          // Click Continue button
+          // Click Continue button (original approach that works)
           console.log("gcLogin: clicking Continue");
-          await page.evaluate(() => {
-            const btns = Array.from(
-                document.querySelectorAll("button[type=\"button\"]"),
-            );
-            const continueBtn = btns.find((b) =>
-              b.textContent.trim().toLowerCase() === "continue",
-            );
-            if (continueBtn) continueBtn.click();
-          });
-          await delay(1000);
+          const continueBtn = await page.$("button[type=\"button\"]");
+          if (continueBtn) {
+            await continueBtn.click();
+          } else {
+            await page.keyboard.press("Enter");
+          }
           // Wait for the password page to load
           console.log("gcLogin: waiting for password page");
           await page.waitForSelector(
@@ -236,11 +232,20 @@ exports.gcLogin = functions
           }, gcPassword);
           await delay(500);
 
-          // Click Sign in button
+          // Click Sign in — find by text to avoid hitting Resend/other btns
           console.log("gcLogin: clicking Sign in");
           await page.evaluate(() => {
-            const btn = document.querySelector("button[type=\"submit\"]");
-            if (btn) btn.click();
+            const btns = Array.from(document.querySelectorAll("button"));
+            const signIn = btns.find((b) =>
+              b.textContent.trim().toLowerCase() === "sign in",
+            );
+            if (signIn) {
+              signIn.click();
+            } else {
+              // Fallback: submit the form directly
+              const form = document.querySelector("form");
+              if (form) form.requestSubmit();
+            }
           });
           await delay(5000);
 
