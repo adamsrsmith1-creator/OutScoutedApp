@@ -378,24 +378,10 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcLocalStorage)
       "Chrome/120.0.0.0 Safari/537.36",
   );
 
-  // Inject saved GC cookies for authenticated access
+  // Inject saved GC cookies for schedule page (no localStorage needed here)
   if (gcCookies && gcCookies.length > 0) {
-    console.log(`Injecting ${gcCookies.length} GC cookies`);
+    console.log(`Injecting ${gcCookies.length} GC cookies for schedule`);
     await page.setCookie(...gcCookies);
-  }
-
-  // Inject localStorage auth tokens — must navigate to domain first
-  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
-    console.log("Injecting localStorage auth tokens");
-    await page.goto("https://web.gc.com/favicon.ico", {
-      waitUntil: "load", timeout: 10000,
-    }).catch(() => {});
-    await page.evaluate((items) => {
-      for (const [key, value] of Object.entries(items)) {
-        localStorage.setItem(key, value);
-      }
-    }, gcLocalStorage);
-    console.log("localStorage injected");
   }
 
   // Build schedule URL
