@@ -324,18 +324,27 @@ exports.scrapeGameChanger = functions
           return;
         }
 
-        // Load saved GC cookies
+        // Load saved GC cookies and localStorage auth tokens
         let gcCookies = null;
+        let gcLocalStorage = null;
         try {
           const cookieDoc = await db.doc("gc_config/cookies").get();
-          if (cookieDoc.exists && cookieDoc.data().cookies) {
-            gcCookies = JSON.parse(cookieDoc.data().cookies);
-            console.log(`Loaded ${gcCookies.length} saved GC cookies`);
-          } else {
-            console.log("No saved GC cookies found — data may be anonymized");
+          if (cookieDoc.exists) {
+            const data = cookieDoc.data();
+            if (data.cookies) {
+              gcCookies = JSON.parse(data.cookies);
+              console.log(`Loaded ${gcCookies.length} saved GC cookies`);
+            }
+            if (data.localStorage) {
+              gcLocalStorage = JSON.parse(data.localStorage);
+              console.log(`Loaded ${Object.keys(gcLocalStorage).length} localStorage items`);
+            }
+          }
+          if (!gcCookies && !gcLocalStorage) {
+            console.log("No saved GC auth found — data may be anonymized");
           }
         } catch (e) {
-          console.log("Error loading cookies:", e.message);
+          console.log("Error loading auth:", e.message);
         }
 
         const limit = Math.min(maxGames || 50, 50);
@@ -346,7 +355,7 @@ exports.scrapeGameChanger = functions
           browser = await launchBrowser();
           console.log("Browser launched successfully");
 
-          const result = await scrapeTeam(browser, teamUrl, limit, gcCookies);
+          const result = await scrapeTeam(browser, teamUrl, limit, gcCookies, gcLocalStorage);
           console.log("Scrape complete. Games found:", result.games ? result.games.length : 0);
           res.json(result);
         } catch (err) {
@@ -361,7 +370,7 @@ exports.scrapeGameChanger = functions
 /**
  * Scrape the team schedule to find all game links, then scrape each game.
  */
-async function scrapeTeam(browser, teamUrl, maxGames, gcCookies) {
+async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcLocalStorage) {
   const page = await browser.newPage();
   await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -373,6 +382,20 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies) {
   if (gcCookies && gcCookies.length > 0) {
     console.log(`Injecting ${gcCookies.length} GC cookies`);
     await page.setCookie(...gcCookies);
+  }
+
+  // Inject localStorage auth tokens — must navigate to domain first
+  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
+    console.log("Injecting localStorage auth tokens");
+    await page.goto("https://web.gc.com/favicon.ico", {
+      waitUntil: "load", timeout: 10000,
+    }).catch(() => {});
+    await page.evaluate((items) => {
+      for (const [key, value] of Object.entries(items)) {
+        localStorage.setItem(key, value);
+      }
+    }, gcLocalStorage);
+    console.log("localStorage injected");
   }
 
   // Build schedule URL
@@ -530,7 +553,7 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies) {
   for (let i = 0; i < gamesToScrape.length; i++) {
     const game = gamesToScrape[i];
     try {
-      const gameData = await scrapeGame(browser, game, gcCookies);
+      const gameData = await scrapeGame(browser, game, gcCookies, gcLocalStorage);
       games.push(gameData);
     } catch (err) {
       console.error(`Error scraping game ${game.id}:`, err.message);
@@ -561,14 +584,15 @@ async function clearBrowserState(page) {
   try {
     await client.send("Network.clearBrowserCache");
     await client.send("Network.clearBrowserCookies");
+    // Clear cache and service workers but preserve localStorage (auth tokens)
+    const clearTypes = "cache_storage,service_workers,indexeddb,websql";
     await client.send("Storage.clearDataForOrigin", {
       origin: "https://web.gc.com",
-      storageTypes: "all",
+      storageTypes: clearTypes,
     });
-    // Unregister any service workers for gc.com
     await client.send("Storage.clearDataForOrigin", {
       origin: "https://www.gc.com",
-      storageTypes: "all",
+      storageTypes: clearTypes,
     });
   } catch (e) {
     console.log("CDP clear warning (non-fatal):", e.message);
@@ -582,7 +606,7 @@ async function clearBrowserState(page) {
  * Uses CDP to clear all cached state before each game to prevent
  * the GC SPA from serving stale data.
  */
-async function scrapeGame(browser, gameInfo, gcCookies) {
+async function scrapeGame(browser, gameInfo, gcCookies, gcLocalStorage) {
   const page = await browser.newPage();
   try {
   await page.setUserAgent(
@@ -591,13 +615,25 @@ async function scrapeGame(browser, gameInfo, gcCookies) {
       "Chrome/120.0.0.0 Safari/537.36",
   );
 
-  // Clear all cached state before loading this game
+  // Clear cached state (preserves localStorage) before loading this game
   await clearBrowserState(page);
   await page.setCacheEnabled(false);
 
   // Re-inject GC cookies after clearing state
   if (gcCookies && gcCookies.length > 0) {
     await page.setCookie(...gcCookies);
+  }
+
+  // Inject localStorage auth tokens
+  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
+    await page.goto("https://web.gc.com/favicon.ico", {
+      waitUntil: "load", timeout: 10000,
+    }).catch(() => {});
+    await page.evaluate((items) => {
+      for (const [key, value] of Object.entries(items)) {
+        localStorage.setItem(key, value);
+      }
+    }, gcLocalStorage);
   }
 
   const result = {
@@ -613,10 +649,20 @@ async function scrapeGame(browser, gameInfo, gcCookies) {
   // ─── BOX SCORE ───
   const boxUrl = gameInfo.baseUrl + "/box-score";
   console.log(`Game ${gameInfo.id}: loading box score from ${boxUrl}`);
-  // Navigate to blank first, then clear state again before the real URL
+  // Navigate to blank, clear state, re-inject auth, then load box score
   await page.goto("about:blank", {waitUntil: "load"});
   await clearBrowserState(page);
   if (gcCookies && gcCookies.length > 0) await page.setCookie(...gcCookies);
+  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
+    await page.goto("https://web.gc.com/favicon.ico", {
+      waitUntil: "load", timeout: 10000,
+    }).catch(() => {});
+    await page.evaluate((items) => {
+      for (const [key, value] of Object.entries(items)) {
+        localStorage.setItem(key, value);
+      }
+    }, gcLocalStorage);
+  }
   await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
@@ -737,10 +783,20 @@ async function scrapeGame(browser, gameInfo, gcCookies) {
   // ─── PLAY BY PLAY ───
   const playsUrl = gameInfo.baseUrl + "/plays";
   console.log(`Game ${gameInfo.id}: loading plays from ${playsUrl}`);
-  // Clear state again before loading plays page
+  // Clear state, re-inject auth, then load plays page
   await page.goto("about:blank", {waitUntil: "load"});
   await clearBrowserState(page);
   if (gcCookies && gcCookies.length > 0) await page.setCookie(...gcCookies);
+  if (gcLocalStorage && Object.keys(gcLocalStorage).length > 0) {
+    await page.goto("https://web.gc.com/favicon.ico", {
+      waitUntil: "load", timeout: 10000,
+    }).catch(() => {});
+    await page.evaluate((items) => {
+      for (const [key, value] of Object.entries(items)) {
+        localStorage.setItem(key, value);
+      }
+    }, gcLocalStorage);
+  }
   await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
