@@ -408,7 +408,27 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcLocalStorage)
   console.log("Navigating to schedule:", scheduleUrl);
   await page.goto(scheduleUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
-  console.log("Schedule page loaded");
+  const schedUrl = await page.url();
+  console.log("Schedule page loaded, current URL:", schedUrl);
+
+  // Log page state for debugging
+  const pageDebug = await page.evaluate(() => {
+    const anchors = document.querySelectorAll("a");
+    const schedLinks = [];
+    for (const a of anchors) {
+      const href = a.getAttribute("href") || "";
+      if (href.includes("/schedule/")) {
+        schedLinks.push(href.substring(0, 80));
+      }
+    }
+    return {
+      totalAnchors: anchors.length,
+      scheduleLinks: schedLinks.length,
+      firstFew: schedLinks.slice(0, 3),
+      mainText: (document.querySelector("main")?.innerText || "").substring(0, 300),
+    };
+  });
+  console.log("Schedule debug:", JSON.stringify(pageDebug));
 
   // Extract team name — primary method: derive from the URL slug
   // URL format: /teams/TEAMID/2026-spring-robinson-varsity-senators
