@@ -819,6 +819,30 @@
         </div>
       </div>
 
+      <!-- GC Login Section -->
+      <div class="table-wrap" style="padding:1.2rem;margin-bottom:0.8rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.6rem;">
+          <div>
+            <div style="font-weight:600;font-size:0.9rem;color:var(--text);">GameChanger Authentication</div>
+            <div id="gcLoginStatus" style="font-size:0.78rem;color:var(--muted2);margin-top:0.15rem;">Checking login status...</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <button class="btn btn-primary btn-sm" id="gcLoginBtn" onclick="startGcLogin()" style="height:34px;">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
+              Login to GameChanger
+            </button>
+          </div>
+        </div>
+        <!-- 2FA Code Input (hidden by default) -->
+        <div id="gcCodeWrap" style="display:none;margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid var(--border2);">
+          <div style="font-size:0.82rem;color:var(--text);margin-bottom:0.4rem;">A verification code was sent to your email. Enter it below:</div>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <input type="text" id="gcVerifyCode" placeholder="Enter code from email" style="flex:1;max-width:240px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:0.85rem;padding:0.5rem 0.6rem;outline:none;font-family:'Barlow',sans-serif;letter-spacing:2px;text-align:center;">
+            <button class="btn btn-primary btn-sm" onclick="submitGcCode()" style="height:36px;">Submit Code</button>
+          </div>
+        </div>
+      </div>
+
       <div class="table-wrap" style="padding:1.2rem;">
         <div style="display:flex;gap:0.6rem;align-items:flex-end;flex-wrap:wrap;">
           <div class="field" style="flex:1;min-width:280px;">
@@ -897,7 +921,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import {
-    getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc,
+    getFirestore, collection, getDocs, getDoc, addDoc, updateDoc, deleteDoc,
     doc, query, orderBy, where, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -921,7 +945,7 @@
 
     window._db = db;
     window._auth = auth;
-    window._fns = { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where, serverTimestamp };
+    window._fns = { collection, getDocs, getDoc, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where, serverTimestamp };
 
     await loadAll();
     document.getElementById("loadingScreen").style.display = "none";
@@ -1723,6 +1747,149 @@
   }
 
   // ═══════════════════════════════════
+  // ── GC LOGIN FUNCTIONS ──
+  // ═══════════════════════════════════
+
+  const GC_LOGIN_URL = 'https://us-central1-outscouted-app.cloudfunctions.net/gcLogin';
+
+  async function checkGcLoginStatus() {
+    const statusEl = document.getElementById('gcLoginStatus');
+    if (!window._fns || !window._db) {
+      statusEl.innerHTML = '<span style="color:var(--muted2);">Loading...</span>';
+      setTimeout(checkGcLoginStatus, 1000);
+      return;
+    }
+    try {
+      const { getDoc: gd, doc: d } = window._fns;
+      const cookieDoc = await gd(d(window._db, 'gc_config', 'cookies'));
+      if (cookieDoc.exists()) {
+        const data = cookieDoc.data();
+        const hasToken = !!(data.gcToken);
+        const savedAt = data.savedAt;
+        let timeStr = 'unknown time';
+        if (savedAt && savedAt.toDate) {
+          timeStr = savedAt.toDate().toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'});
+        }
+        if (hasToken) {
+          statusEl.innerHTML = '<span style="color:#4ade80;">✓ Authenticated</span> — API token saved ' + timeStr;
+        } else if (data.cookies) {
+          statusEl.innerHTML = '<span style="color:#fbbf24;">Cookies only</span> — saved ' + timeStr + ' (API token needed for player names)';
+        }
+        document.getElementById('gcLoginBtn').textContent = 'Refresh Login';
+      } else {
+        statusEl.innerHTML = '<span style="color:#f87171;">Not logged in</span> — click Login to authenticate with GameChanger';
+      }
+    } catch (e) {
+      statusEl.innerHTML = '<span style="color:var(--muted2);">Unable to check login status</span>';
+    }
+  }
+
+  let _gcLoginPollInterval = null;
+
+  async function startGcLogin() {
+    const btn = document.getElementById('gcLoginBtn');
+    const statusEl = document.getElementById('gcLoginStatus');
+    btn.disabled = true;
+    btn.textContent = 'Starting login...';
+    statusEl.innerHTML = '<span style="color:var(--accent);">Connecting to GameChanger...</span>';
+
+    try {
+      const token = await window._auth.currentUser.getIdToken();
+      // Fire-and-forget the start request (it will take up to 5 minutes)
+      fetch(GC_LOGIN_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+        body: JSON.stringify({action: 'start'}),
+      }).then(async (resp) => {
+        const data = await resp.json();
+        if (data.status === 'success') {
+          statusEl.innerHTML = '<span style="color:#4ade80;">✓ Login successful!</span> Cookies saved.';
+          document.getElementById('gcCodeWrap').style.display = 'none';
+          btn.disabled = false;
+          btn.textContent = 'Refresh Login';
+          if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
+          checkGcLoginStatus();
+        } else if (data.status === 'timeout') {
+          statusEl.innerHTML = '<span style="color:#f87171;">Code entry timed out.</span> Try again.';
+          document.getElementById('gcCodeWrap').style.display = 'none';
+          btn.disabled = false;
+          btn.textContent = 'Login to GameChanger';
+          if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
+        } else if (data.status === 'failed') {
+          statusEl.innerHTML = '<span style="color:#f87171;">Login failed: ' + (data.message || 'Unknown error') + '</span>';
+          document.getElementById('gcCodeWrap').style.display = 'none';
+          btn.disabled = false;
+          btn.textContent = 'Login to GameChanger';
+          if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
+        } else {
+          statusEl.innerHTML = '<span style="color:#f87171;">Login error: ' + (data.error || 'Unexpected response') + '</span>';
+          document.getElementById('gcCodeWrap').style.display = 'none';
+          btn.disabled = false;
+          btn.textContent = 'Login to GameChanger';
+          if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
+        }
+      }).catch((err) => {
+        statusEl.innerHTML = '<span style="color:#f87171;">Login error: ' + err.message + '</span>';
+        btn.disabled = false;
+        btn.textContent = 'Login to GameChanger';
+        if (_gcLoginPollInterval) clearInterval(_gcLoginPollInterval);
+      });
+
+      // Poll Firestore for login status updates
+      const { getDoc: gd2, doc: d2 } = window._fns;
+      _gcLoginPollInterval = setInterval(async () => {
+        try {
+          const sessionDoc = await gd2(d2(window._db, 'gc_config', 'login_session'));
+          if (sessionDoc.exists()) {
+            const data = sessionDoc.data();
+            if (data.status === 'code_required') {
+              statusEl.innerHTML = '<span style="color:#fbbf24;">Verification code required</span> — check your email';
+              document.getElementById('gcCodeWrap').style.display = 'block';
+              btn.textContent = 'Waiting for code...';
+            } else if (data.status === 'success') {
+              clearInterval(_gcLoginPollInterval);
+            }
+          }
+        } catch (e) { /* ignore poll errors */ }
+      }, 2000);
+
+    } catch (e) {
+      statusEl.innerHTML = '<span style="color:#f87171;">Error: ' + e.message + '</span>';
+      btn.disabled = false;
+      btn.textContent = 'Login to GameChanger';
+    }
+  }
+
+  async function submitGcCode() {
+    const code = document.getElementById('gcVerifyCode').value.trim();
+    if (!code) {
+      alert('Please enter the verification code from your email');
+      return;
+    }
+
+    const statusEl = document.getElementById('gcLoginStatus');
+    statusEl.innerHTML = '<span style="color:var(--accent);">Submitting code...</span>';
+
+    try {
+      const token = await window._auth.currentUser.getIdToken();
+      const resp = await fetch(GC_LOGIN_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+        body: JSON.stringify({action: 'submit_code', code}),
+      });
+      const data = await resp.json();
+      if (data.status === 'code_submitted') {
+        statusEl.innerHTML = '<span style="color:var(--accent);">Code submitted — completing login...</span>';
+        document.getElementById('gcVerifyCode').value = '';
+      }
+    } catch (e) {
+      statusEl.innerHTML = '<span style="color:#f87171;">Error submitting code: ' + e.message + '</span>';
+    }
+  }
+
+  // Check login status on page load
+  setTimeout(checkGcLoginStatus, 1500);
+
   // ── GC IMPORT FUNCTIONS ──
   // ═══════════════════════════════════
 
