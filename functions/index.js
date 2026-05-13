@@ -6,11 +6,272 @@ admin.initializeApp();
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
+const db = admin.firestore();
+
+/**
+ * Verify Firebase Auth token and check admin email.
+ */
+async function verifyAdmin(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    throw new Error("Unauthorized");
+  }
+  const idToken = authHeader.split("Bearer ")[1];
+  const decodedToken = await admin.auth().verifyIdToken(idToken);
+  if (decodedToken.email !== ADMIN_EMAIL) {
+    throw new Error("Admin access required");
+  }
+  return decodedToken;
+}
+
+/**
+ * Launch a Puppeteer browser instance using serverless Chromium.
+ */
+async function launchBrowser() {
+  const chromium = require("@sparticuz/chromium");
+  const puppeteer = require("puppeteer-core");
+  return puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+}
+
+/**
+ * gcLogin – Firebase Cloud Function
+ *
+ * Handles GameChanger login with 2FA code support.
+ * Flow:
+ *   1. Client calls with {action: "start"} → function begins login,
+ *      writes status to Firestore, polls for verification code
+ *   2. Client enters code → writes to Firestore gc_config/login_session
+ *   3. Function picks up code, completes login, saves cookies
+ *
+ * Or for direct login with code:
+ *   Client calls with {action: "submit_code", code: "123456"} and the
+ *   function does the full login in one shot.
+ */
+exports.gcLogin = functions
+    .runWith({
+      timeoutSeconds: 540,
+      memory: "2GB",
+    })
+    .https.onRequest((req, res) => {
+      cors(req, res, async () => {
+        if (req.method !== "POST") {
+          res.status(405).json({error: "POST required"});
+          return;
+        }
+
+        try {
+          await verifyAdmin(req);
+        } catch (authErr) {
+          res.status(401).json({error: authErr.message});
+          return;
+        }
+
+        const {action} = req.body;
+
+        if (action === "status") {
+          // Return current login session status
+          const doc = await db.doc("gc_config/login_session").get();
+          res.json(doc.exists ? doc.data() : {status: "none"});
+          return;
+        }
+
+        if (action === "submit_code") {
+          // User is submitting the verification code
+          const {code} = req.body;
+          if (!code) {
+            res.status(400).json({error: "Code is required"});
+            return;
+          }
+          await db.doc("gc_config/login_session").set(
+              {code, status: "code_submitted"},
+              {merge: true},
+          );
+          res.json({status: "code_submitted"});
+          return;
+        }
+
+        if (action !== "start") {
+          res.status(400).json({
+            error: "Invalid action. Use 'start', 'submit_code', or 'status'",
+          });
+          return;
+        }
+
+        // action === "start" — begin the login flow
+        const gcEmail = process.env.GC_EMAIL;
+        const gcPassword = process.env.GC_PASSWORD;
+        if (!gcEmail || !gcPassword) {
+          res.status(500).json({
+            error: "GC credentials not configured on server",
+          });
+          return;
+        }
+
+        // Clear any previous session
+        await db.doc("gc_config/login_session").set({
+          status: "starting",
+          startedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        let browser;
+        try {
+          browser = await launchBrowser();
+          const page = await browser.newPage();
+          await page.setUserAgent(
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+              "AppleWebKit/537.36 (KHTML, like Gecko) " +
+              "Chrome/120.0.0.0 Safari/537.36",
+          );
+
+          // Step 1: Navigate to login page
+          console.log("gcLogin: navigating to login page");
+          await page.goto("https://web.gc.com/login", {
+            waitUntil: "networkidle2",
+            timeout: 30000,
+          });
+          await delay(2000);
+
+          // Step 2: Enter email
+          console.log("gcLogin: entering email");
+          await page.waitForSelector("input[name=\"email\"]", {timeout: 10000});
+          await page.type("input[name=\"email\"]", gcEmail, {delay: 50});
+          await delay(500);
+
+          // Click Continue
+          const continueBtn = await page.$("button[type=\"button\"]");
+          if (continueBtn) {
+            await continueBtn.click();
+          } else {
+            await page.keyboard.press("Enter");
+          }
+          await delay(3000);
+
+          // Step 3: Check if we're on the password page
+          const hasCodeField = await page.$("input[name=\"code\"]");
+          const hasPasswordField = await page.$("input[name=\"password\"]");
+
+          if (!hasPasswordField) {
+            throw new Error("Login page did not load password field");
+          }
+
+          // Enter password
+          console.log("gcLogin: entering password");
+          await page.type("input[name=\"password\"]", gcPassword, {delay: 50});
+
+          if (hasCodeField) {
+            // 2FA code required — signal the client and poll for code
+            console.log("gcLogin: 2FA code required, waiting for user");
+            await db.doc("gc_config/login_session").set({
+              status: "code_required",
+              startedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // Poll Firestore for the code (up to 5 minutes)
+            let code = null;
+            const maxWait = 300; // 5 minutes
+            const pollInterval = 3; // 3 seconds
+            for (let i = 0; i < maxWait / pollInterval; i++) {
+              await delay(pollInterval * 1000);
+              const sessionDoc = await db.doc(
+                  "gc_config/login_session",
+              ).get();
+              if (sessionDoc.exists &&
+                  sessionDoc.data().status === "code_submitted" &&
+                  sessionDoc.data().code) {
+                code = sessionDoc.data().code;
+                break;
+              }
+            }
+
+            if (!code) {
+              await db.doc("gc_config/login_session").set({
+                status: "timeout",
+              });
+              res.json({status: "timeout", message: "Code entry timed out"});
+              return;
+            }
+
+            // Enter the verification code
+            console.log("gcLogin: entering verification code");
+            await page.type("input[name=\"code\"]", code, {delay: 50});
+          }
+
+          // Click Sign in
+          console.log("gcLogin: clicking Sign in");
+          const signInBtn = await page.$("button[type=\"submit\"]");
+          if (signInBtn) {
+            await signInBtn.click();
+          }
+          await delay(5000);
+
+          // Check if login succeeded by looking at the URL
+          const currentUrl = await page.url();
+          console.log("gcLogin: post-login URL:", currentUrl);
+
+          if (currentUrl.includes("/login")) {
+            // Still on login page — check for error messages
+            const errorText = await page.evaluate(() => {
+              const el = document.querySelector("main");
+              return el ? el.innerText : "";
+            });
+            const hasInvalid = errorText.includes("Invalid") ||
+                errorText.includes("incorrect") ||
+                errorText.includes("error");
+            await db.doc("gc_config/login_session").set({
+              status: "failed",
+              error: hasInvalid ?
+                  "Invalid credentials or code" : "Login did not redirect",
+            });
+            res.json({
+              status: "failed",
+              message: hasInvalid ?
+                  "Invalid credentials or code" : "Login did not redirect",
+            });
+            return;
+          }
+
+          // Login succeeded — save cookies
+          console.log("gcLogin: login succeeded, saving cookies");
+          const cookies = await page.cookies();
+          await db.doc("gc_config/cookies").set({
+            cookies: JSON.stringify(cookies),
+            savedAt: admin.firestore.FieldValue.serverTimestamp(),
+            email: gcEmail,
+          });
+          await db.doc("gc_config/login_session").set({
+            status: "success",
+          });
+
+          res.json({
+            status: "success",
+            message: "Logged in and cookies saved",
+            cookieCount: cookies.length,
+          });
+        } catch (err) {
+          console.error("gcLogin error:", err.message, err.stack);
+          await db.doc("gc_config/login_session").set({
+            status: "error",
+            error: err.message,
+          });
+          res.status(500).json({error: err.message});
+        } finally {
+          if (browser) await browser.close();
+        }
+      });
+    });
+
 /**
  * scrapeGameChanger – Firebase Cloud Function
  *
  * Accepts a GameChanger team URL, scrapes the schedule page to find all games,
  * then scrapes each game's box score and play-by-play data.
+ * Loads saved GC cookies from Firestore to access authenticated data.
  *
  * Returns structured JSON with team info, game list, and per-game data.
  */
@@ -26,22 +287,10 @@ exports.scrapeGameChanger = functions
           return;
         }
 
-        // Verify Firebase Auth token
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          res.status(401).json({error: "Unauthorized"});
-          return;
-        }
-        const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
         try {
-          const idToken = authHeader.split("Bearer ")[1];
-          const decodedToken = await admin.auth().verifyIdToken(idToken);
-          if (decodedToken.email !== ADMIN_EMAIL) {
-            res.status(403).json({error: "Admin access required"});
-            return;
-          }
+          await verifyAdmin(req);
         } catch (authErr) {
-          res.status(401).json({error: "Invalid auth token"});
+          res.status(401).json({error: authErr.message});
           return;
         }
 
@@ -54,23 +303,29 @@ exports.scrapeGameChanger = functions
           return;
         }
 
+        // Load saved GC cookies
+        let gcCookies = null;
+        try {
+          const cookieDoc = await db.doc("gc_config/cookies").get();
+          if (cookieDoc.exists && cookieDoc.data().cookies) {
+            gcCookies = JSON.parse(cookieDoc.data().cookies);
+            console.log(`Loaded ${gcCookies.length} saved GC cookies`);
+          } else {
+            console.log("No saved GC cookies found — data may be anonymized");
+          }
+        } catch (e) {
+          console.log("Error loading cookies:", e.message);
+        }
+
         const limit = Math.min(maxGames || 50, 50);
 
         let browser;
         try {
           console.log("Starting scrape for:", teamUrl);
-          const chromium = require("@sparticuz/chromium");
-          const puppeteer = require("puppeteer-core");
-          console.log("Chromium exec path:", await chromium.executablePath());
-          browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-          });
+          browser = await launchBrowser();
           console.log("Browser launched successfully");
 
-          const result = await scrapeTeam(browser, teamUrl, limit);
+          const result = await scrapeTeam(browser, teamUrl, limit, gcCookies);
           console.log("Scrape complete. Games found:", result.games ? result.games.length : 0);
           res.json(result);
         } catch (err) {
@@ -85,13 +340,19 @@ exports.scrapeGameChanger = functions
 /**
  * Scrape the team schedule to find all game links, then scrape each game.
  */
-async function scrapeTeam(browser, teamUrl, maxGames) {
+async function scrapeTeam(browser, teamUrl, maxGames, gcCookies) {
   const page = await browser.newPage();
   await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
       "AppleWebKit/537.36 (KHTML, like Gecko) " +
       "Chrome/120.0.0.0 Safari/537.36",
   );
+
+  // Inject saved GC cookies for authenticated access
+  if (gcCookies && gcCookies.length > 0) {
+    console.log(`Injecting ${gcCookies.length} GC cookies`);
+    await page.setCookie(...gcCookies);
+  }
 
   // Build schedule URL
   let scheduleUrl = teamUrl.replace(/\/+$/, "");
@@ -248,7 +509,7 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
   for (let i = 0; i < gamesToScrape.length; i++) {
     const game = gamesToScrape[i];
     try {
-      const gameData = await scrapeGame(browser, game);
+      const gameData = await scrapeGame(browser, game, gcCookies);
       games.push(gameData);
     } catch (err) {
       console.error(`Error scraping game ${game.id}:`, err.message);
@@ -300,7 +561,7 @@ async function clearBrowserState(page) {
  * Uses CDP to clear all cached state before each game to prevent
  * the GC SPA from serving stale data.
  */
-async function scrapeGame(browser, gameInfo) {
+async function scrapeGame(browser, gameInfo, gcCookies) {
   const page = await browser.newPage();
   try {
   await page.setUserAgent(
@@ -312,6 +573,11 @@ async function scrapeGame(browser, gameInfo) {
   // Clear all cached state before loading this game
   await clearBrowserState(page);
   await page.setCacheEnabled(false);
+
+  // Re-inject GC cookies after clearing state
+  if (gcCookies && gcCookies.length > 0) {
+    await page.setCookie(...gcCookies);
+  }
 
   const result = {
     id: gameInfo.id,
@@ -329,6 +595,7 @@ async function scrapeGame(browser, gameInfo) {
   // Navigate to blank first, then clear state again before the real URL
   await page.goto("about:blank", {waitUntil: "load"});
   await clearBrowserState(page);
+  if (gcCookies && gcCookies.length > 0) await page.setCookie(...gcCookies);
   await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
@@ -452,6 +719,7 @@ async function scrapeGame(browser, gameInfo) {
   // Clear state again before loading plays page
   await page.goto("about:blank", {waitUntil: "load"});
   await clearBrowserState(page);
+  if (gcCookies && gcCookies.length > 0) await page.setCookie(...gcCookies);
   await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
 
