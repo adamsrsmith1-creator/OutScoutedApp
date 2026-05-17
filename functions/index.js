@@ -394,21 +394,23 @@ exports.scrapeGameChanger = functions
           console.log("Error loading auth:", e.message);
         }
 
-        // Check if GC-Token is still valid, refresh if needed
+        // Check token expiration from JWT payload
         if (gcToken) {
           try {
-            const testRes = await fetch(
-                "https://api.team-manager.gc.com/me/user",
-                {headers: {"GC-Token": gcToken, "Accept": "application/json"}},
+            const parts = gcToken.split(".");
+            const payload = JSON.parse(
+                Buffer.from(parts[1], "base64").toString(),
             );
-            if (testRes.ok) {
-              console.log("GC-Token is valid");
-            } else {
-              console.log(`GC-Token expired (${testRes.status}), attempting refresh...`);
-              gcToken = null; // Force refresh below
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (payload.exp && payload.exp < nowSec) {
+              console.log("GC-Token JWT expired (exp claim), will try refresh");
+              gcToken = null;
+            } else if (payload.exp) {
+              const minsLeft = Math.round((payload.exp - nowSec) / 60);
+              console.log(`GC-Token valid, expires in ${minsLeft} min`);
             }
           } catch (e) {
-            console.log("Token validation error:", e.message);
+            console.log("JWT decode error:", e.message);
           }
         }
 
@@ -497,15 +499,10 @@ async function refreshGcToken(browser, gcCookies, edenAuthTokens) {
     await delay(5000);
 
     if (freshToken) {
-      // Validate the captured token
-      const testRes = await fetch(
-          "https://api.team-manager.gc.com/me/user",
-          {headers: {"GC-Token": freshToken, "Accept": "application/json"}},
-      );
-      if (testRes.ok) {
-        console.log(`Token refresh successful (${freshToken.length} chars)`);
+      console.log(`Token refresh successful (${freshToken.length} chars)`);
 
-        // Also save updated eden-auth-tokens (SDK may have refreshed them)
+      // Also save updated eden-auth-tokens (SDK may have refreshed them)
+      try {
         const updatedTokens = await page.evaluate(() => {
           return localStorage.getItem("eden-auth-tokens");
         });
@@ -515,9 +512,8 @@ async function refreshGcToken(browser, gcCookies, edenAuthTokens) {
           });
           console.log("Updated eden-auth-tokens in Firestore");
         }
-      } else {
-        console.log(`Refreshed token invalid (${testRes.status})`);
-        freshToken = "";
+      } catch (e) {
+        console.log("Error reading updated eden-auth-tokens:", e.message);
       }
     } else {
       console.log("No GC-Token captured during refresh attempt");
@@ -727,7 +723,7 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
   for (let i = 0; i < gamesToScrape.length; i++) {
     const game = gamesToScrape[i];
     try {
-      const gameData = await fetchGameFromAPI(game, gcToken, teamId);
+      const gameData = await fetchGameFromAPI(game, gcToken, teamId, teamName);
       games.push(gameData);
     } catch (err) {
       console.error(`Error fetching game ${game.id}:`, err.message);
@@ -753,7 +749,7 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
  * Uses direct API calls instead of browser rendering — much faster and
  * more reliable than scraping the React SPA.
  */
-async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
+async function fetchGameFromAPI(gameInfo, gcToken, teamId, scoutTeamName) {
   const gameId = gameInfo.id;
   const apiBase = "https://api.team-manager.gc.com";
   const headers = {"Accept": "application/json"};
@@ -779,14 +775,24 @@ async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
   const boxData = boxRes.ok ? await boxRes.json() : {};
 
   // Fetch play-by-play
-  const playsRes = await fetch(
-      `${apiBase}/game-stream-processing/${gameId}/plays`,
-      {headers},
-  );
-  if (!playsRes.ok) {
-    console.log(`Game ${gameId}: plays API returned ${playsRes.status}`);
+  let playsData = {};
+  try {
+    const playsRes = await fetch(
+        `${apiBase}/game-stream-processing/${gameId}/plays`,
+        {headers},
+    );
+    console.log(`Game ${gameId}: plays API status ${playsRes.status}`);
+    if (playsRes.ok) {
+      playsData = await playsRes.json();
+      const numPlays = playsData.plays ? playsData.plays.length : 0;
+      console.log(`Game ${gameId}: plays API returned ${numPlays} plays`);
+    } else {
+      const errText = await playsRes.text().catch(() => "");
+      console.log(`Game ${gameId}: plays API error: ${errText.substring(0, 200)}`);
+    }
+  } catch (playsErr) {
+    console.log(`Game ${gameId}: plays fetch error: ${playsErr.message}`);
   }
-  const playsData = playsRes.ok ? await playsRes.json() : {};
 
   // Build player lookup from boxscore data
   const allPlayers = {};
@@ -812,7 +818,7 @@ async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
 
   // Build box score text in the format the existing parser expects
   const boxText = formatBoxScoreText(
-      boxData, details, allPlayers, teamId, gameInfo.text,
+      boxData, details, allPlayers, teamId, scoutTeamName,
   );
 
   // Build play-by-play text
@@ -850,7 +856,7 @@ async function fetchGameFromAPI(gameInfo, gcToken, teamId) {
 /**
  * Format boxscore API data into text that matches the existing parser.
  */
-function formatBoxScoreText(boxData, details, allPlayers, teamId) {
+function formatBoxScoreText(boxData, details, allPlayers, teamId, scoutTeamLabel) {
   const lines = [];
 
   // Date header
@@ -866,16 +872,32 @@ function formatBoxScoreText(boxData, details, allPlayers, teamId) {
   if (details.line_score) {
     const ls = details.line_score;
     const innings = ls.team?.scores || [];
-    lines.push(innings.join("\t"));
-    lines.push("R\tH\tE");
+    for (const s of innings) lines.push(String(s));
+    lines.push("R", "H", "E");
     const tt = ls.team?.totals || [];
     const ot = ls.opponent_team?.totals || [];
-    lines.push(tt.join("\t"));
-    lines.push(ot.join("\t"));
+    for (const s of tt) lines.push(String(s));
+    for (const s of ot) lines.push(String(s));
+  }
+
+  // Determine team order: scouted team first, then opponent
+  // The parser treats first section as away, second as home
+  const teamIds = Object.keys(boxData);
+  // Put the scouted team (teamId) first if home_away indicates away
+  const homeAway = details.home_away || "home";
+  const opponentName = details.opponent_team?.name || "Opponent";
+  // Get the game text for the scouted team name
+  const scoutedTeamIdx = teamIds.indexOf(teamId);
+  if (scoutedTeamIdx > 0) {
+    // Move scouted team to front
+    const removed = teamIds.splice(scoutedTeamIdx, 1);
+    teamIds.unshift(removed[0]);
   }
 
   // Format each team's batting and pitching
-  for (const [tid, tdata] of Object.entries(boxData)) {
+  let teamIndex = 0;
+  for (const tid of teamIds) {
+    const tdata = boxData[tid] || {};
     const players = {};
     if (tdata.players) {
       for (const p of tdata.players) {
@@ -883,27 +905,47 @@ function formatBoxScoreText(boxData, details, allPlayers, teamId) {
       }
     }
 
+    // Add team name header — parser looks for this before LINEUP
+    if (tid === teamId) {
+      // Scouted team name from the game label
+      lines.push(scoutTeamLabel || "Scouted Team");
+    } else {
+      lines.push(opponentName);
+    }
+
     const groups = tdata.groups || [];
     for (const group of groups) {
       const cat = group.category || "";
 
       if (cat === "lineup") {
-        // Batting section
-        lines.push("LINEUP\tAB\tR\tH\tRBI\tBB\tSO");
+        // Batting section — parser expects each header on its own line
+        lines.push("LINEUP");
+        lines.push("AB", "R", "H", "RBI", "BB", "SO");
         for (const s of (group.stats || [])) {
           const p = players[s.player_id] || {};
           const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
           const num = p.number || "";
           const pos = s.player_text || "";
           const st = s.stats || {};
-          lines.push(`${name}\n#${num} ${pos}\n${st.AB || 0}\t` +
-              `${st.R || 0}\t${st.H || 0}\t${st.RBI || 0}\t` +
-              `${st.BB || 0}\t${st.SO || 0}`);
+          // Parser expects: name, jersey/pos, then 6 stats each on own line
+          lines.push(name);
+          lines.push(`#${num}${pos ? " " + pos : ""}`);
+          lines.push(String(st.AB || 0));
+          lines.push(String(st.R || 0));
+          lines.push(String(st.H || 0));
+          lines.push(String(st.RBI || 0));
+          lines.push(String(st.BB || 0));
+          lines.push(String(st.SO || 0));
         }
-        // Team totals
+        // Team totals — parser skips lines starting with TEAM + digits
         const ts = group.team_stats || {};
-        lines.push(`TEAM\t${ts.AB || 0}\t${ts.R || 0}\t${ts.H || 0}\t` +
-            `${ts.RBI || 0}\t${ts.BB || 0}\t${ts.SO || 0}`);
+        lines.push("TEAM");
+        lines.push(String(ts.AB || 0));
+        lines.push(String(ts.R || 0));
+        lines.push(String(ts.H || 0));
+        lines.push(String(ts.RBI || 0));
+        lines.push(String(ts.BB || 0));
+        lines.push(String(ts.SO || 0));
 
         // Extra stats (HR, 2B, TB, SB, etc.)
         for (const extra of (group.extra || [])) {
@@ -919,19 +961,30 @@ function formatBoxScoreText(boxData, details, allPlayers, teamId) {
         }
       } else if (cat === "pitching") {
         // Pitching section
-        lines.push("PITCHING\tIP\tH\tR\tER\tBB\tSO");
+        lines.push("PITCHING");
+        lines.push("IP", "H", "R", "ER", "BB", "SO");
         for (const s of (group.stats || [])) {
           const p = players[s.player_id] || {};
           const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
           const num = p.number || "";
           const st = s.stats || {};
-          lines.push(`${name}\n#${num}\n${st.IP || 0}\t` +
-              `${st.H || 0}\t${st.R || 0}\t${st.ER || 0}\t` +
-              `${st.BB || 0}\t${st.SO || 0}`);
+          lines.push(name);
+          lines.push(`#${num}`);
+          lines.push(String(st.IP || 0));
+          lines.push(String(st.H || 0));
+          lines.push(String(st.R || 0));
+          lines.push(String(st.ER || 0));
+          lines.push(String(st.BB || 0));
+          lines.push(String(st.SO || 0));
         }
         const ts = group.team_stats || {};
-        lines.push(`TEAM\t${ts.IP || 0}\t${ts.H || 0}\t${ts.R || 0}\t` +
-            `${ts.ER || 0}\t${ts.BB || 0}\t${ts.SO || 0}`);
+        lines.push("TEAM");
+        lines.push(String(ts.IP || 0));
+        lines.push(String(ts.H || 0));
+        lines.push(String(ts.R || 0));
+        lines.push(String(ts.ER || 0));
+        lines.push(String(ts.BB || 0));
+        lines.push(String(ts.SO || 0));
 
         // Pitching extras (Pitches-Strikes, Batters Faced, etc.)
         for (const extra of (group.extra || [])) {
@@ -947,6 +1000,7 @@ function formatBoxScoreText(boxData, details, allPlayers, teamId) {
         }
       }
     }
+    teamIndex++;
   }
 
   return lines.join("\n");
@@ -980,29 +1034,33 @@ function formatPlaysText(playsData, allPlayers) {
       lines.push(`${play.away_score}-${play.home_score}`);
     }
 
-    // Pitch sequence
+    // Pitch sequence — also resolve player IDs (caught stealing etc.)
     const pitches = (play.at_plate_details || [])
-        .map((d) => d.template || "").filter((t) => t);
+        .map((d) => {
+          let t = d.template || "";
+          t = t.replace(/\$\{([^}]+)\}/g, (match, id) => {
+            return allPlayers[id] || "Unknown";
+          });
+          return t;
+        }).filter((t) => t);
     if (pitches.length > 0) {
       lines.push(pitches.join(", "));
     }
 
+    // Helper to resolve player IDs in template strings
+    const resolve = (text) => text.replace(/\$\{([^}]+)\}/g, (match, id) => {
+      return allPlayers[id] || "Unknown";
+    });
+
     // Play description — resolve player IDs in templates
     for (const detail of (play.final_details || [])) {
-      let text = detail.template || "";
-      // Replace ${player-id} with player names
-      text = text.replace(/\$\{([^}]+)\}/g, (match, id) => {
-        return allPlayers[id] || match;
-      });
+      const text = resolve(detail.template || "");
       if (text) lines.push(text);
     }
 
     // Messages (lineup changes, etc.)
     for (const msg of (play.messages || [])) {
-      let text = msg.template || "";
-      text = text.replace(/\$\{([^}]+)\}/g, (match, id) => {
-        return allPlayers[id] || match;
-      });
+      const text = resolve(msg.template || "");
       if (text) lines.push(text);
     }
   }
