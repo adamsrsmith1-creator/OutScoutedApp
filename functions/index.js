@@ -823,7 +823,7 @@ async function fetchGameFromAPI(gameInfo, gcToken, teamId, scoutTeamName) {
 
   // Build play-by-play text
   const playsText = formatPlaysText(
-      playsData, allPlayers, details,
+      playsData, allPlayers, details, scoutTeamName,
   );
 
   // Format date info
@@ -1008,21 +1008,43 @@ function formatBoxScoreText(boxData, details, allPlayers, teamId, scoutTeamLabel
 
 /**
  * Format play-by-play API data into text that matches the existing parser.
+ * Parser expects headers like "Top 1st - Robinson Varsity Senators"
  */
-function formatPlaysText(playsData, allPlayers) {
+function formatPlaysText(playsData, allPlayers, details, scoutTeamName) {
   if (!playsData.plays || playsData.plays.length === 0) return "";
+
+  // Determine team names for top/bottom of inning
+  const homeAway = details?.home_away || "home";
+  const opponentName = details?.opponent_team?.name || "Opponent";
+  // top = away batting, bottom = home batting
+  let topTeam, bottomTeam;
+  if (homeAway === "away") {
+    topTeam = scoutTeamName || "Away Team";
+    bottomTeam = opponentName;
+  } else {
+    topTeam = opponentName;
+    bottomTeam = scoutTeamName || "Home Team";
+  }
+
+  // Ordinal suffix helper
+  const ordinal = (n) => {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
 
   const lines = [];
   let currentInning = 0;
   let currentHalf = "";
 
   for (const play of playsData.plays) {
-    // Inning headers
+    // Inning headers — parser expects "Top 1st - Team Name"
     if (play.inning !== currentInning || play.half !== currentHalf) {
       currentInning = play.inning;
       currentHalf = play.half;
       const halfLabel = currentHalf === "top" ? "Top" : "Bottom";
-      lines.push(`${halfLabel} ${currentInning}`);
+      const teamName = currentHalf === "top" ? topTeam : bottomTeam;
+      lines.push(`${halfLabel} ${ordinal(currentInning)} - ${teamName}`);
     }
 
     // Play name
