@@ -6,11 +6,335 @@ admin.initializeApp();
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
+const db = admin.firestore();
+
+/**
+ * Verify Firebase Auth token and check admin email.
+ */
+async function verifyAdmin(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    throw new Error("Unauthorized");
+  }
+  const idToken = authHeader.split("Bearer ")[1];
+  const decodedToken = await admin.auth().verifyIdToken(idToken);
+  if (decodedToken.email !== ADMIN_EMAIL) {
+    throw new Error("Admin access required");
+  }
+  return decodedToken;
+}
+
+/**
+ * Launch a Puppeteer browser instance using serverless Chromium.
+ */
+async function launchBrowser() {
+  const chromium = require("@sparticuz/chromium");
+  const puppeteer = require("puppeteer-core");
+  return puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+}
+
+/**
+ * gcLogin – Firebase Cloud Function
+ *
+ * Handles GameChanger login with 2FA code support.
+ * Flow:
+ *   1. Client calls with {action: "start"} → function begins login,
+ *      writes status to Firestore, polls for verification code
+ *   2. Client enters code → writes to Firestore gc_config/login_session
+ *   3. Function picks up code, completes login, saves cookies
+ *
+ * Or for direct login with code:
+ *   Client calls with {action: "submit_code", code: "123456"} and the
+ *   function does the full login in one shot.
+ */
+exports.gcLogin = functions
+    .runWith({
+      timeoutSeconds: 540,
+      memory: "2GB",
+    })
+    .https.onRequest((req, res) => {
+      cors(req, res, async () => {
+        if (req.method !== "POST") {
+          res.status(405).json({error: "POST required"});
+          return;
+        }
+
+        try {
+          await verifyAdmin(req);
+        } catch (authErr) {
+          res.status(401).json({error: authErr.message});
+          return;
+        }
+
+        const {action} = req.body;
+
+        if (action === "status") {
+          // Return current login session status
+          const doc = await db.doc("gc_config/login_session").get();
+          res.json(doc.exists ? doc.data() : {status: "none"});
+          return;
+        }
+
+        if (action === "submit_code") {
+          // User is submitting the verification code
+          const {code} = req.body;
+          if (!code) {
+            res.status(400).json({error: "Code is required"});
+            return;
+          }
+          await db.doc("gc_config/login_session").set(
+              {code, status: "code_submitted"},
+              {merge: true},
+          );
+          res.json({status: "code_submitted"});
+          return;
+        }
+
+        if (action !== "start") {
+          res.status(400).json({
+            error: "Invalid action. Use 'start', 'submit_code', or 'status'",
+          });
+          return;
+        }
+
+        // action === "start" — begin the login flow
+        const gcEmail = process.env.GC_EMAIL;
+        const gcPassword = process.env.GC_PASSWORD;
+        if (!gcEmail || !gcPassword) {
+          res.status(500).json({
+            error: "GC credentials not configured on server",
+          });
+          return;
+        }
+
+        // Clear any previous session
+        await db.doc("gc_config/login_session").set({
+          status: "starting",
+          startedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        let browser;
+        try {
+          browser = await launchBrowser();
+          const page = await browser.newPage();
+          await page.setUserAgent(
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+              "AppleWebKit/537.36 (KHTML, like Gecko) " +
+              "Chrome/120.0.0.0 Safari/537.36",
+          );
+
+          // Step 1: Navigate to login page
+          console.log("gcLogin: navigating to login page");
+          await page.goto("https://web.gc.com/login", {
+            waitUntil: "networkidle2",
+            timeout: 30000,
+          });
+          await delay(2000);
+
+          // Step 2: Enter email
+          console.log("gcLogin: entering email");
+          await page.waitForSelector("input[name=\"email\"]", {timeout: 10000});
+          await page.type("input[name=\"email\"]", gcEmail, {delay: 50});
+          await delay(500);
+
+          // Click Continue button (original approach that works)
+          console.log("gcLogin: clicking Continue");
+          const continueBtn = await page.$("button[type=\"button\"]");
+          if (continueBtn) {
+            await continueBtn.click();
+          } else {
+            await page.keyboard.press("Enter");
+          }
+          // Wait for the password page to load
+          console.log("gcLogin: waiting for password page");
+          await page.waitForSelector(
+              "input[name=\"password\"]", {timeout: 15000},
+          );
+          await delay(2000);
+
+          // Step 3: Check if code field exists (2FA required)
+          const hasCodeField = await page.$("input[name=\"code\"]");
+
+          if (hasCodeField) {
+            // 2FA code required — signal the client and poll for code
+            console.log("gcLogin: 2FA code required, waiting for user");
+            await db.doc("gc_config/login_session").set({
+              status: "code_required",
+              startedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // Poll Firestore for the code (up to 5 minutes)
+            let code = null;
+            const maxWait = 300; // 5 minutes
+            const pollInterval = 3; // 3 seconds
+            for (let i = 0; i < maxWait / pollInterval; i++) {
+              await delay(pollInterval * 1000);
+              const sessionDoc = await db.doc(
+                  "gc_config/login_session",
+              ).get();
+              if (sessionDoc.exists &&
+                  sessionDoc.data().status === "code_submitted" &&
+                  sessionDoc.data().code) {
+                code = sessionDoc.data().code;
+                break;
+              }
+            }
+
+            if (!code) {
+              await db.doc("gc_config/login_session").set({
+                status: "timeout",
+              });
+              res.json({status: "timeout", message: "Code entry timed out"});
+              return;
+            }
+
+            // Enter code — simple click + type (matches working Playwright test)
+            console.log("gcLogin: entering verification code:", code);
+            const codeField = await page.$("input[name=\"code\"]");
+            await codeField.click({clickCount: 3}); // select any existing text
+            await codeField.type(code, {delay: 80});
+            await delay(300);
+
+            // Log what the code field contains
+            const codeVal = await page.$eval(
+                "input[name=\"code\"]", (el) => el.value,
+            );
+            console.log("gcLogin: code field value after typing:", codeVal);
+          }
+
+          // Enter password — simple click + type
+          console.log("gcLogin: entering password");
+          const pwField = await page.$("input[name=\"password\"]");
+          await pwField.click({clickCount: 3}); // select any existing text
+          await pwField.type(gcPassword, {delay: 50});
+          await delay(300);
+
+          // Log page state before clicking Sign In
+          const pageText = await page.evaluate(() => {
+            return document.querySelector("main").innerText.substring(0, 500);
+          });
+          console.log("gcLogin: page text before submit:", pageText);
+
+          // Click Sign in button directly
+          console.log("gcLogin: clicking Sign in");
+          const signInBtn = await page.$("button[type=\"submit\"]");
+          if (signInBtn) {
+            await signInBtn.click();
+          } else {
+            console.log("gcLogin: no submit button found, pressing Enter");
+            await page.keyboard.press("Enter");
+          }
+          await delay(5000);
+
+          // Check if login succeeded by looking at the URL
+          const currentUrl = await page.url();
+          console.log("gcLogin: post-login URL:", currentUrl);
+
+          if (currentUrl.includes("/login")) {
+            // Still on login page — capture full error details
+            const errorText = await page.evaluate(() => {
+              const el = document.querySelector("main");
+              return el ? el.innerText : "";
+            });
+            console.log("gcLogin: FAILED - still on login page. Page text:",
+                errorText.substring(0, 500));
+            const errorMsg = errorText.includes("new verification code") ?
+                "Code expired or invalid — GC sent a new code" :
+                errorText.includes("incorrect") ?
+                    "Email or password incorrect" :
+                    "Login failed: " + errorText.substring(0, 200);
+            await db.doc("gc_config/login_session").set({
+              status: "failed",
+              error: errorMsg,
+            });
+            res.json({status: "failed", message: errorMsg});
+            return;
+          }
+
+          // Login succeeded — save cookies and extract GC-Token JWT
+          console.log("gcLogin: login succeeded, saving auth data");
+          const cookies = await page.cookies();
+
+          // Extract GC-Token JWT by intercepting API requests
+          let gcToken = "";
+          try {
+            // Navigate to a page that triggers API calls with GC-Token
+            const client = await page.createCDPSession();
+            let capturedToken = "";
+            client.on("Network.requestWillBeSent", (params) => {
+              const gcTok = (params.request.headers || {})["GC-Token"] ||
+                  (params.request.headers || {})["gc-token"] || "";
+              if (gcTok && gcTok.length > 100) capturedToken = gcTok;
+            });
+            await client.send("Network.enable");
+            await page.goto("https://web.gc.com/", {
+              waitUntil: "networkidle2", timeout: 15000,
+            });
+            await delay(3000);
+            gcToken = capturedToken;
+            await client.detach();
+          } catch (e) {
+            console.log("gcLogin: error capturing GC-Token:", e.message);
+          }
+
+          // Also save eden-auth-tokens for token auto-refresh
+          let edenTokens = "";
+          try {
+            edenTokens = await page.evaluate(() => {
+              return localStorage.getItem("eden-auth-tokens") || "";
+            });
+          } catch (e) {
+            console.log("gcLogin: error reading eden-auth-tokens:", e.message);
+          }
+
+          const saveData = {
+            cookies: JSON.stringify(cookies),
+            savedAt: admin.firestore.FieldValue.serverTimestamp(),
+            email: gcEmail,
+          };
+          if (gcToken) {
+            saveData.gcToken = gcToken;
+            console.log(`gcLogin: saved GC-Token JWT (${gcToken.length} chars)`);
+          }
+          if (edenTokens) {
+            saveData.edenAuthTokens = edenTokens;
+            console.log(`gcLogin: saved eden-auth-tokens (${edenTokens.length} chars)`);
+          }
+          await db.doc("gc_config/cookies").set(saveData);
+          await db.doc("gc_config/login_session").set({
+            status: "success",
+          });
+
+          res.json({
+            status: "success",
+            message: "Logged in and cookies saved",
+            cookieCount: cookies.length,
+          });
+        } catch (err) {
+          console.error("gcLogin error:", err.message, err.stack);
+          await db.doc("gc_config/login_session").set({
+            status: "error",
+            error: err.message,
+          });
+          res.status(500).json({error: err.message});
+        } finally {
+          if (browser) await browser.close();
+        }
+      });
+    });
+
 /**
  * scrapeGameChanger – Firebase Cloud Function
  *
  * Accepts a GameChanger team URL, scrapes the schedule page to find all games,
  * then scrapes each game's box score and play-by-play data.
+ * Loads saved GC cookies from Firestore to access authenticated data.
  *
  * Returns structured JSON with team info, game list, and per-game data.
  */
@@ -26,22 +350,10 @@ exports.scrapeGameChanger = functions
           return;
         }
 
-        // Verify Firebase Auth token
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          res.status(401).json({error: "Unauthorized"});
-          return;
-        }
-        const ADMIN_EMAIL = "adamsrsmith1@gmail.com";
         try {
-          const idToken = authHeader.split("Bearer ")[1];
-          const decodedToken = await admin.auth().verifyIdToken(idToken);
-          if (decodedToken.email !== ADMIN_EMAIL) {
-            res.status(403).json({error: "Admin access required"});
-            return;
-          }
+          await verifyAdmin(req);
         } catch (authErr) {
-          res.status(401).json({error: "Invalid auth token"});
+          res.status(401).json({error: authErr.message});
           return;
         }
 
@@ -54,24 +366,83 @@ exports.scrapeGameChanger = functions
           return;
         }
 
+        // Load saved GC auth (JWT token for API calls + cookies for schedule)
+        let gcCookies = null;
+        let gcToken = null;
+        let edenAuthTokens = null;
+        try {
+          const cookieDoc = await db.doc("gc_config/cookies").get();
+          if (cookieDoc.exists) {
+            const data = cookieDoc.data();
+            if (data.cookies) {
+              gcCookies = JSON.parse(data.cookies);
+              console.log(`Loaded ${gcCookies.length} saved GC cookies`);
+            }
+            if (data.gcToken) {
+              gcToken = data.gcToken;
+              console.log(`Loaded GC-Token JWT (${gcToken.length} chars)`);
+            }
+            if (data.edenAuthTokens) {
+              edenAuthTokens = data.edenAuthTokens;
+              console.log(`Loaded eden-auth-tokens (${edenAuthTokens.length} chars)`);
+            }
+          }
+          if (!gcToken) {
+            console.log("No GC-Token found — data may be anonymized");
+          }
+        } catch (e) {
+          console.log("Error loading auth:", e.message);
+        }
+
+        // Check token expiration from JWT payload
+        if (gcToken) {
+          try {
+            const parts = gcToken.split(".");
+            const payload = JSON.parse(
+                Buffer.from(parts[1], "base64").toString(),
+            );
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (payload.exp && payload.exp < nowSec) {
+              console.log("GC-Token JWT expired (exp claim), will try refresh");
+              gcToken = null;
+            } else if (payload.exp) {
+              const minsLeft = Math.round((payload.exp - nowSec) / 60);
+              console.log(`GC-Token valid, expires in ${minsLeft} min`);
+            }
+          } catch (e) {
+            console.log("JWT decode error:", e.message);
+          }
+        }
+
         const limit = Math.min(maxGames || 50, 50);
 
         let browser;
         try {
           console.log("Starting scrape for:", teamUrl);
-          const chromium = require("@sparticuz/chromium");
-          const puppeteer = require("puppeteer-core");
-          console.log("Chromium exec path:", await chromium.executablePath());
-          browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-          });
+          browser = await launchBrowser();
           console.log("Browser launched successfully");
 
-          const result = await scrapeTeam(browser, teamUrl, limit);
-          console.log("Scrape complete. Games found:", result.games ? result.games.length : 0);
+          // If token is expired, try to refresh via Puppeteer
+          if (!gcToken && edenAuthTokens) {
+            console.log("Attempting token refresh via Puppeteer...");
+            gcToken = await refreshGcToken(
+                browser, gcCookies, edenAuthTokens,
+            );
+            if (gcToken) {
+              // Save the refreshed token to Firestore
+              await db.doc("gc_config/cookies").update({
+                gcToken,
+                savedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              console.log("Refreshed and saved new GC-Token");
+            }
+          }
+
+          const result = await scrapeTeam(
+              browser, teamUrl, limit, gcCookies, gcToken,
+          );
+          console.log("Scrape complete. Games found:",
+              result.games ? result.games.length : 0);
           res.json(result);
         } catch (err) {
           console.error("Scrape error:", err.message, err.stack);
@@ -83,9 +454,84 @@ exports.scrapeGameChanger = functions
     });
 
 /**
+ * Refresh the GC-Token JWT by loading gc.com with saved auth tokens.
+ * The eden SDK in gc.com decrypts the saved tokens and generates a fresh JWT.
+ */
+async function refreshGcToken(browser, gcCookies, edenAuthTokens) {
+  let freshToken = "";
+  const page = await browser.newPage();
+  try {
+    await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/120.0.0.0 Safari/537.36",
+    );
+
+    // Set up CDP network interception to capture GC-Token
+    const client = await page.createCDPSession();
+    client.on("Network.requestWillBeSent", (params) => {
+      const tok = (params.request.headers || {})["GC-Token"] ||
+          (params.request.headers || {})["gc-token"] || "";
+      if (tok && tok.length > 100 && !freshToken) {
+        freshToken = tok;
+      }
+    });
+    await client.send("Network.enable");
+
+    // Inject cookies
+    if (gcCookies && gcCookies.length > 0) {
+      await page.setCookie(...gcCookies);
+    }
+
+    // Navigate to gc.com to set localStorage
+    await page.goto("https://web.gc.com/favicon.ico", {timeout: 10000});
+    await delay(500);
+
+    // Inject eden-auth-tokens into localStorage
+    await page.evaluate((tokens) => {
+      localStorage.setItem("eden-auth-tokens", tokens);
+    }, edenAuthTokens);
+
+    // Navigate to gc.com — the eden SDK will decrypt tokens and make API calls
+    await page.goto("https://web.gc.com/", {
+      waitUntil: "domcontentloaded", timeout: 20000,
+    });
+    await delay(5000);
+
+    if (freshToken) {
+      console.log(`Token refresh successful (${freshToken.length} chars)`);
+
+      // Also save updated eden-auth-tokens (SDK may have refreshed them)
+      try {
+        const updatedTokens = await page.evaluate(() => {
+          return localStorage.getItem("eden-auth-tokens");
+        });
+        if (updatedTokens && updatedTokens !== edenAuthTokens) {
+          await db.doc("gc_config/cookies").update({
+            edenAuthTokens: updatedTokens,
+          });
+          console.log("Updated eden-auth-tokens in Firestore");
+        }
+      } catch (e) {
+        console.log("Error reading updated eden-auth-tokens:", e.message);
+      }
+    } else {
+      console.log("No GC-Token captured during refresh attempt");
+    }
+
+    await client.detach();
+  } catch (e) {
+    console.log("Token refresh error:", e.message);
+  } finally {
+    await page.close();
+  }
+  return freshToken || null;
+}
+
+/**
  * Scrape the team schedule to find all game links, then scrape each game.
  */
-async function scrapeTeam(browser, teamUrl, maxGames) {
+async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
   const page = await browser.newPage();
   await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -93,17 +539,42 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
       "Chrome/120.0.0.0 Safari/537.36",
   );
 
+  // Inject saved GC cookies for schedule page (no localStorage needed here)
+  if (gcCookies && gcCookies.length > 0) {
+    console.log(`Injecting ${gcCookies.length} GC cookies for schedule`);
+    await page.setCookie(...gcCookies);
+  }
+
   // Build schedule URL
   let scheduleUrl = teamUrl.replace(/\/+$/, "");
   if (!scheduleUrl.includes("/schedule")) {
-    // If URL has a season slug, we need to append /schedule to the full path
     scheduleUrl += "/schedule";
   }
 
   console.log("Navigating to schedule:", scheduleUrl);
   await page.goto(scheduleUrl, {waitUntil: "networkidle2", timeout: 30000});
   await delay(3000);
-  console.log("Schedule page loaded");
+  const schedUrl = await page.url();
+  console.log("Schedule page loaded, current URL:", schedUrl);
+
+  // Log page state for debugging
+  const pageDebug = await page.evaluate(() => {
+    const anchors = document.querySelectorAll("a");
+    const schedLinks = [];
+    for (const a of anchors) {
+      const href = a.getAttribute("href") || "";
+      if (href.includes("/schedule/")) {
+        schedLinks.push(href.substring(0, 80));
+      }
+    }
+    return {
+      totalAnchors: anchors.length,
+      scheduleLinks: schedLinks.length,
+      firstFew: schedLinks.slice(0, 3),
+      mainText: (document.querySelector("main")?.innerText || "").substring(0, 300),
+    };
+  });
+  console.log("Schedule debug:", JSON.stringify(pageDebug));
 
   // Extract team name — primary method: derive from the URL slug
   // URL format: /teams/TEAMID/2026-spring-robinson-varsity-senators
@@ -242,16 +713,20 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
 
   await page.close();
 
+  // Extract team ID from URL for API calls
+  const teamIdMatch = teamUrl.match(/\/teams\/([^/]+)/);
+  const teamId = teamIdMatch ? teamIdMatch[1] : null;
+
   const gamesToScrape = gameLinks.slice(0, maxGames);
   const games = [];
 
   for (let i = 0; i < gamesToScrape.length; i++) {
     const game = gamesToScrape[i];
     try {
-      const gameData = await scrapeGame(browser, game);
+      const gameData = await fetchGameFromAPI(game, gcToken, teamId, teamName);
       games.push(gameData);
     } catch (err) {
-      console.error(`Error scraping game ${game.id}:`, err.message);
+      console.error(`Error fetching game ${game.id}:`, err.message);
       games.push({
         id: game.id,
         error: err.message,
@@ -270,282 +745,347 @@ async function scrapeTeam(browser, teamUrl, maxGames) {
 }
 
 /**
- * Clear all browser state for a page using CDP commands.
- * This clears HTTP cache, cookies, service workers, and all site storage
- * to ensure each game gets a completely fresh load.
+ * Fetch a single game's data from the GC API.
+ * Uses direct API calls instead of browser rendering — much faster and
+ * more reliable than scraping the React SPA.
  */
-async function clearBrowserState(page) {
-  const client = await page.createCDPSession();
-  try {
-    await client.send("Network.clearBrowserCache");
-    await client.send("Network.clearBrowserCookies");
-    await client.send("Storage.clearDataForOrigin", {
-      origin: "https://web.gc.com",
-      storageTypes: "all",
-    });
-    // Unregister any service workers for gc.com
-    await client.send("Storage.clearDataForOrigin", {
-      origin: "https://www.gc.com",
-      storageTypes: "all",
-    });
-  } catch (e) {
-    console.log("CDP clear warning (non-fatal):", e.message);
-  } finally {
-    await client.detach();
+async function fetchGameFromAPI(gameInfo, gcToken, teamId, scoutTeamName) {
+  const gameId = gameInfo.id;
+  const apiBase = "https://api.team-manager.gc.com";
+  const headers = {"Accept": "application/json"};
+  if (gcToken) headers["GC-Token"] = gcToken;
+
+  console.log(`Game ${gameId}: fetching via API`);
+
+  // Fetch game details (date, score, line score)
+  const detailsRes = await fetch(
+      `${apiBase}/public/game-stream-processing/${gameId}/details?include=line_score`,
+      {headers},
+  );
+  const details = detailsRes.ok ? await detailsRes.json() : {};
+
+  // Fetch boxscore (players + batting/pitching stats)
+  const boxRes = await fetch(
+      `${apiBase}/game-stream-processing/${gameId}/boxscore`,
+      {headers},
+  );
+  if (!boxRes.ok) {
+    console.log(`Game ${gameId}: boxscore API returned ${boxRes.status}`);
   }
+  const boxData = boxRes.ok ? await boxRes.json() : {};
+
+  // Fetch play-by-play
+  let playsData = {};
+  try {
+    const playsRes = await fetch(
+        `${apiBase}/game-stream-processing/${gameId}/plays`,
+        {headers},
+    );
+    console.log(`Game ${gameId}: plays API status ${playsRes.status}`);
+    if (playsRes.ok) {
+      playsData = await playsRes.json();
+      const numPlays = playsData.plays ? playsData.plays.length : 0;
+      console.log(`Game ${gameId}: plays API returned ${numPlays} plays`);
+    } else {
+      const errText = await playsRes.text().catch(() => "");
+      console.log(`Game ${gameId}: plays API error: ${errText.substring(0, 200)}`);
+    }
+  } catch (playsErr) {
+    console.log(`Game ${gameId}: plays fetch error: ${playsErr.message}`);
+  }
+
+  // Build player lookup from boxscore data
+  const allPlayers = {};
+  for (const [tid, tdata] of Object.entries(boxData)) {
+    if (tdata.players) {
+      for (const p of tdata.players) {
+        allPlayers[p.id] = `${p.first_name} ${p.last_name}`;
+      }
+    }
+  }
+  // Also add from plays data
+  if (playsData.team_players) {
+    for (const [tid, players] of Object.entries(playsData.team_players)) {
+      for (const p of players) {
+        allPlayers[p.id] = `${p.first_name} ${p.last_name}`;
+      }
+    }
+  }
+
+  // Determine home/away teams
+  const opponentName = details.opponent_team?.name || "";
+  const homeAway = details.home_away || "home";
+
+  // Build box score text in the format the existing parser expects
+  const boxText = formatBoxScoreText(
+      boxData, details, allPlayers, teamId, scoutTeamName,
+  );
+
+  // Build play-by-play text
+  const playsText = formatPlaysText(
+      playsData, allPlayers, details, scoutTeamName,
+  );
+
+  // Format date info
+  let dateInfo = "";
+  if (details.start_ts) {
+    const d = new Date(details.start_ts);
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    dateInfo = `${days[d.getDay()]} ${months[d.getMonth()]} ${d.getDate()}`;
+  }
+
+  console.log(`Game ${gameId}: box ${boxText.length} chars, ` +
+      `plays ${playsText.length} chars`);
+
+  return {
+    id: gameId,
+    label: gameInfo.text,
+    dateInfo,
+    teams: {
+      home: homeAway === "home" ? "" : opponentName,
+      away: homeAway === "away" ? "" : opponentName,
+    },
+    linescore: details.line_score || null,
+    boxScore: {fullText: boxText},
+    plays: playsText,
+  };
 }
 
 /**
- * Scrape a single game's box score and play-by-play.
- * Uses CDP to clear all cached state before each game to prevent
- * the GC SPA from serving stale data.
+ * Format boxscore API data into text that matches the existing parser.
  */
-async function scrapeGame(browser, gameInfo) {
-  const page = await browser.newPage();
-  try {
-  await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/120.0.0.0 Safari/537.36",
-  );
+function formatBoxScoreText(boxData, details, allPlayers, teamId, scoutTeamLabel) {
+  const lines = [];
 
-  // Clear all cached state before loading this game
-  await clearBrowserState(page);
-  await page.setCacheEnabled(false);
+  // Date header
+  if (details.start_ts) {
+    const d = new Date(details.start_ts);
+    lines.push(d.toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    }));
+  }
+  lines.push("FINAL");
 
-  const result = {
-    id: gameInfo.id,
-    label: gameInfo.text,
-    dateInfo: "",
-    teams: {home: "", away: ""},
-    linescore: null,
-    boxScore: {home: null, away: null},
-    plays: "",
-  };
-
-  // ─── BOX SCORE ───
-  const boxUrl = gameInfo.baseUrl + "/box-score";
-  console.log(`Game ${gameInfo.id}: loading box score from ${boxUrl}`);
-  // Navigate to blank first, then clear state again before the real URL
-  await page.goto("about:blank", {waitUntil: "load"});
-  await clearBrowserState(page);
-  await page.goto(boxUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await delay(3000);
-
-  // Get date info
-  result.dateInfo = await page.evaluate(() => {
-    const el = document.querySelector("main");
-    if (!el) return "";
-    const text = el.innerText;
-    const match = text.match(
-        /(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w+\s+\d+.*?(AM|PM)\s+\w+/,
-    );
-    return match ? match[0] : "";
-  });
-
-  // Get team names from box score page links
-  const teamNames = await page.evaluate(() => {
-    const els = document.querySelectorAll("main a[href*=\"/teams/\"]");
-    const navTabs = new Set([
-      "RECAP", "BOX SCORE", "PLAYS", "VIDEOS", "INFO",
-      "HOME", "AWAY", "SCHEDULE", "STATS", "ROSTER",
-    ]);
-    const names = [];
-    els.forEach((el) => {
-      const t = el.innerText.trim();
-      if (t.length > 3 && !navTabs.has(t.toUpperCase())) {
-        names.push(t);
-      }
-    });
-    return names;
-  });
-  if (teamNames.length >= 2) {
-    result.teams.home = teamNames[0];
-    result.teams.away = teamNames[1];
-  } else if (teamNames.length === 1) {
-    result.teams.home = teamNames[0];
+  // Line score
+  if (details.line_score) {
+    const ls = details.line_score;
+    const innings = ls.team?.scores || [];
+    for (const s of innings) lines.push(String(s));
+    lines.push("R", "H", "E");
+    const tt = ls.team?.totals || [];
+    const ot = ls.opponent_team?.totals || [];
+    for (const s of tt) lines.push(String(s));
+    for (const s of ot) lines.push(String(s));
   }
 
-  // Get linescore
-  result.linescore = await page.evaluate(() => {
-    const tables = document.querySelectorAll("main table");
-    if (tables.length < 3) return null;
-
-    // Team abbreviations
-    const teamRows = tables[0].querySelectorAll("tr");
-    const teamAbbrs = [];
-    teamRows.forEach((r) => {
-      const td = r.querySelector("td");
-      if (td) teamAbbrs.push(td.innerText.trim());
-    });
-
-    // Inning scores
-    const inningHeaders = Array.from(tables[1].querySelectorAll("th"))
-        .map((th) => th.innerText.trim());
-    const inningRows = tables[1].querySelectorAll("tbody tr");
-    const innings = [];
-    inningRows.forEach((r) => {
-      innings.push(
-          Array.from(r.querySelectorAll("td"))
-              .map((td) => td.innerText.trim()),
-      );
-    });
-
-    // R/H/E
-    const rheHeaders = Array.from(tables[2].querySelectorAll("th"))
-        .map((th) => th.innerText.trim());
-    const rheRows = tables[2].querySelectorAll("tbody tr");
-    const rhe = [];
-    rheRows.forEach((r) => {
-      rhe.push(
-          Array.from(r.querySelectorAll("td"))
-              .map((td) => td.innerText.trim()),
-      );
-    });
-
-    return {teamAbbrs, inningHeaders, innings, rheHeaders, rhe};
-  });
-
-  // Get structured box score data
-  result.boxScore = await page.evaluate(() => {
-    const main = document.querySelector("main");
-    if (!main) return {home: null, away: null};
-
-    const text = main.innerText;
-    // Check if the page actually has lineup data (not just a loading state)
-    if (!text.includes("LINEUP") && !text.includes("AB")) {
-      return {fullText: "", note: "No box score data found on page"};
-    }
-    return {fullText: text};
-  });
-
-  // Log box score details to verify each game has unique data
-  const currentBoxUrl = await page.url();
-  const boxPreview = (result.boxScore.fullText || "").substring(0, 120);
-  console.log(`Game ${gameInfo.id}: box score ${
-    result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
-    "EMPTY"} (url: ${currentBoxUrl})`);
-  console.log(`Game ${gameInfo.id}: preview: ${boxPreview}`);
-
-  // If box score was empty, try one more time after a longer wait
-  if (!result.boxScore.fullText) {
-    console.log(`Game ${gameInfo.id}: retrying box score after delay...`);
-    await page.reload({waitUntil: "networkidle2", timeout: 30000});
-    await delay(5000);
-    result.boxScore = await page.evaluate(() => {
-      const main = document.querySelector("main");
-      if (!main) return {home: null, away: null};
-      const text = main.innerText;
-      if (!text.includes("LINEUP") && !text.includes("AB")) {
-        return {fullText: "", note: "No box score data after retry"};
-      }
-      return {fullText: text};
-    });
-    console.log(`Game ${gameInfo.id}: retry box score ${
-      result.boxScore.fullText ? result.boxScore.fullText.length + " chars" :
-      "STILL EMPTY"}`);
+  // Determine team order: scouted team first, then opponent
+  // The parser treats first section as away, second as home
+  const teamIds = Object.keys(boxData);
+  // Put the scouted team (teamId) first if home_away indicates away
+  const homeAway = details.home_away || "home";
+  const opponentName = details.opponent_team?.name || "Opponent";
+  // Get the game text for the scouted team name
+  const scoutedTeamIdx = teamIds.indexOf(teamId);
+  if (scoutedTeamIdx > 0) {
+    // Move scouted team to front
+    const removed = teamIds.splice(scoutedTeamIdx, 1);
+    teamIds.unshift(removed[0]);
   }
 
-  // ─── PLAY BY PLAY ───
-  const playsUrl = gameInfo.baseUrl + "/plays";
-  console.log(`Game ${gameInfo.id}: loading plays from ${playsUrl}`);
-  // Clear state again before loading plays page
-  await page.goto("about:blank", {waitUntil: "load"});
-  await clearBrowserState(page);
-  await page.goto(playsUrl, {waitUntil: "networkidle2", timeout: 30000});
-  await delay(3000);
-
-  // Scroll to load all plays
-  let prevHeight = 0;
-  for (let i = 0; i < 20; i++) {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await delay(500);
-    const currHeight = await page.evaluate(() => document.body.scrollHeight);
-    if (currHeight === prevHeight) break;
-    prevHeight = currHeight;
-  }
-
-  // Extract structured play-by-play
-  result.plays = await page.evaluate(() => {
-    const main = document.querySelector("main");
-    if (!main) return "";
-
-    // Get the plays section text
-    const playsDiv = main.querySelector("h1");
-    if (!playsDiv) return main.innerText;
-
-    // Get everything after the "Plays" header
-    let inPlays = false;
-    const lines = [];
-    const walker = document.createTreeWalker(
-        main, NodeFilter.SHOW_TEXT, null,
-    );
-    let node;
-    while ((node = walker.nextNode())) {
-      const text = node.textContent.trim();
-      if (text === "Plays") inPlays = true;
-      if (inPlays && text.length > 0 &&
-          text !== "All Plays" && text !== "Scoring Plays" &&
-          text !== "Outs" && text !== "Player" &&
-          text !== "Reverse Chronological" &&
-          text !== "Chronological" &&
-          text !== "Sign in to GameChanger" &&
-          !text.includes("see this team") &&
-          !text.includes("schedule, roster")) {
-        lines.push(text);
+  // Format each team's batting and pitching
+  let teamIndex = 0;
+  for (const tid of teamIds) {
+    const tdata = boxData[tid] || {};
+    const players = {};
+    if (tdata.players) {
+      for (const p of tdata.players) {
+        players[p.id] = p;
       }
     }
 
-    return lines.join("\n");
-  });
-
-  console.log(`Game ${gameInfo.id}: plays ${
-    result.plays ? result.plays.length + " chars" : "EMPTY"}`);
-
-  // If plays were empty, try one more time
-  if (!result.plays || result.plays.length < 50) {
-    console.log(`Game ${gameInfo.id}: retrying plays after delay...`);
-    await page.reload({waitUntil: "networkidle2", timeout: 30000});
-    await delay(5000);
-    // Scroll again
-    for (let i = 0; i < 10; i++) {
-      await page.evaluate(() =>
-        window.scrollTo(0, document.body.scrollHeight));
-      await delay(500);
+    // Add team name header — parser looks for this before LINEUP
+    if (tid === teamId) {
+      // Scouted team name from the game label
+      lines.push(scoutTeamLabel || "Scouted Team");
+    } else {
+      lines.push(opponentName);
     }
-    result.plays = await page.evaluate(() => {
-      const main = document.querySelector("main");
-      if (!main) return "";
-      const playsDiv = main.querySelector("h1");
-      if (!playsDiv) return main.innerText;
-      let inPlays = false;
-      const lines = [];
-      const walker = document.createTreeWalker(
-          main, NodeFilter.SHOW_TEXT, null,
-      );
-      let node;
-      while ((node = walker.nextNode())) {
-        const text = node.textContent.trim();
-        if (text === "Plays") inPlays = true;
-        if (inPlays && text.length > 0 &&
-            text !== "All Plays" && text !== "Scoring Plays" &&
-            text !== "Outs" && text !== "Player" &&
-            text !== "Reverse Chronological" &&
-            text !== "Chronological" &&
-            text !== "Sign in to GameChanger" &&
-            !text.includes("see this team") &&
-            !text.includes("schedule, roster")) {
-          lines.push(text);
+
+    const groups = tdata.groups || [];
+    for (const group of groups) {
+      const cat = group.category || "";
+
+      if (cat === "lineup") {
+        // Batting section — parser expects each header on its own line
+        lines.push("LINEUP");
+        lines.push("AB", "R", "H", "RBI", "BB", "SO");
+        for (const s of (group.stats || [])) {
+          const p = players[s.player_id] || {};
+          const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+          const num = p.number || "";
+          const pos = s.player_text || "";
+          const st = s.stats || {};
+          // Parser expects: name, jersey/pos, then 6 stats each on own line
+          lines.push(name);
+          lines.push(`#${num}${pos ? " " + pos : ""}`);
+          lines.push(String(st.AB || 0));
+          lines.push(String(st.R || 0));
+          lines.push(String(st.H || 0));
+          lines.push(String(st.RBI || 0));
+          lines.push(String(st.BB || 0));
+          lines.push(String(st.SO || 0));
+        }
+        // Team totals — parser skips lines starting with TEAM + digits
+        const ts = group.team_stats || {};
+        lines.push("TEAM");
+        lines.push(String(ts.AB || 0));
+        lines.push(String(ts.R || 0));
+        lines.push(String(ts.H || 0));
+        lines.push(String(ts.RBI || 0));
+        lines.push(String(ts.BB || 0));
+        lines.push(String(ts.SO || 0));
+
+        // Extra stats (HR, 2B, TB, SB, etc.)
+        for (const extra of (group.extra || [])) {
+          const statName = extra.stat_name || "";
+          const entries = (extra.stats || []).map((e) => {
+            const p = players[e.player_id] || {};
+            const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+            return e.value > 1 ? `${name} ${e.value}` : name;
+          });
+          if (entries.length > 0) {
+            lines.push(`${statName}: ${entries.join(", ")}`);
+          }
+        }
+      } else if (cat === "pitching") {
+        // Pitching section
+        lines.push("PITCHING");
+        lines.push("IP", "H", "R", "ER", "BB", "SO");
+        for (const s of (group.stats || [])) {
+          const p = players[s.player_id] || {};
+          const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+          const num = p.number || "";
+          const st = s.stats || {};
+          lines.push(name);
+          lines.push(`#${num}`);
+          lines.push(String(st.IP || 0));
+          lines.push(String(st.H || 0));
+          lines.push(String(st.R || 0));
+          lines.push(String(st.ER || 0));
+          lines.push(String(st.BB || 0));
+          lines.push(String(st.SO || 0));
+        }
+        const ts = group.team_stats || {};
+        lines.push("TEAM");
+        lines.push(String(ts.IP || 0));
+        lines.push(String(ts.H || 0));
+        lines.push(String(ts.R || 0));
+        lines.push(String(ts.ER || 0));
+        lines.push(String(ts.BB || 0));
+        lines.push(String(ts.SO || 0));
+
+        // Pitching extras (Pitches-Strikes, Batters Faced, etc.)
+        for (const extra of (group.extra || [])) {
+          const statName = extra.stat_name || "";
+          const entries = (extra.stats || []).map((e) => {
+            const p = players[e.player_id] || {};
+            const name = `${p.first_name || "?"} ${p.last_name || "?"}`;
+            return `${name} ${e.value}`;
+          });
+          if (entries.length > 0) {
+            lines.push(`${statName}: ${entries.join(", ")}`);
+          }
         }
       }
-      return lines.join("\n");
-    });
-    console.log(`Game ${gameInfo.id}: retry plays ${
-      result.plays ? result.plays.length + " chars" : "STILL EMPTY"}`);
+    }
+    teamIndex++;
   }
 
-  return result;
-  } finally {
-    await page.close();
+  return lines.join("\n");
+}
+
+/**
+ * Format play-by-play API data into text that matches the existing parser.
+ * Parser expects headers like "Top 1st - Robinson Varsity Senators"
+ */
+function formatPlaysText(playsData, allPlayers, details, scoutTeamName) {
+  if (!playsData.plays || playsData.plays.length === 0) return "";
+
+  // Determine team names for top/bottom of inning
+  const homeAway = details?.home_away || "home";
+  const opponentName = details?.opponent_team?.name || "Opponent";
+  // top = away batting, bottom = home batting
+  let topTeam, bottomTeam;
+  if (homeAway === "away") {
+    topTeam = scoutTeamName || "Away Team";
+    bottomTeam = opponentName;
+  } else {
+    topTeam = opponentName;
+    bottomTeam = scoutTeamName || "Home Team";
   }
+
+  // Ordinal suffix helper
+  const ordinal = (n) => {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
+  const lines = [];
+  let currentInning = 0;
+  let currentHalf = "";
+
+  for (const play of playsData.plays) {
+    // Inning headers — parser expects "Top 1st - Team Name"
+    if (play.inning !== currentInning || play.half !== currentHalf) {
+      currentInning = play.inning;
+      currentHalf = play.half;
+      const halfLabel = currentHalf === "top" ? "Top" : "Bottom";
+      const teamName = currentHalf === "top" ? topTeam : bottomTeam;
+      lines.push(`${halfLabel} ${ordinal(currentInning)} - ${teamName}`);
+    }
+
+    // Play name
+    const playName = play.name_template?.template || "";
+    lines.push(playName);
+
+    // Score if changed
+    if (play.did_score_change) {
+      lines.push(`${play.away_score}-${play.home_score}`);
+    }
+
+    // Pitch sequence — also resolve player IDs (caught stealing etc.)
+    const pitches = (play.at_plate_details || [])
+        .map((d) => {
+          let t = d.template || "";
+          t = t.replace(/\$\{([^}]+)\}/g, (match, id) => {
+            return allPlayers[id] || "Unknown";
+          });
+          return t;
+        }).filter((t) => t);
+    if (pitches.length > 0) {
+      lines.push(pitches.join(", "));
+    }
+
+    // Helper to resolve player IDs in template strings
+    const resolve = (text) => text.replace(/\$\{([^}]+)\}/g, (match, id) => {
+      return allPlayers[id] || "Unknown";
+    });
+
+    // Play description — resolve player IDs in templates
+    for (const detail of (play.final_details || [])) {
+      const text = resolve(detail.template || "");
+      if (text) lines.push(text);
+    }
+
+    // Messages (lineup changes, etc.)
+    for (const msg of (play.messages || [])) {
+      const text = resolve(msg.template || "");
+      if (text) lines.push(text);
+    }
+  }
+
+  return lines.join("\n");
 }
