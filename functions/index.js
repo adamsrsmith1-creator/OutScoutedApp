@@ -283,6 +283,16 @@ exports.gcLogin = functions
             console.log("gcLogin: error capturing GC-Token:", e.message);
           }
 
+          // Also save eden-auth-tokens for token auto-refresh
+          let edenTokens = "";
+          try {
+            edenTokens = await page.evaluate(() => {
+              return localStorage.getItem("eden-auth-tokens") || "";
+            });
+          } catch (e) {
+            console.log("gcLogin: error reading eden-auth-tokens:", e.message);
+          }
+
           const saveData = {
             cookies: JSON.stringify(cookies),
             savedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -291,6 +301,10 @@ exports.gcLogin = functions
           if (gcToken) {
             saveData.gcToken = gcToken;
             console.log(`gcLogin: saved GC-Token JWT (${gcToken.length} chars)`);
+          }
+          if (edenTokens) {
+            saveData.edenAuthTokens = edenTokens;
+            console.log(`gcLogin: saved eden-auth-tokens (${edenTokens.length} chars)`);
           }
           await db.doc("gc_config/cookies").set(saveData);
           await db.doc("gc_config/login_session").set({
@@ -355,6 +369,7 @@ exports.scrapeGameChanger = functions
         // Load saved GC auth (JWT token for API calls + cookies for schedule)
         let gcCookies = null;
         let gcToken = null;
+        let edenAuthTokens = null;
         try {
           const cookieDoc = await db.doc("gc_config/cookies").get();
           if (cookieDoc.exists) {
@@ -367,12 +382,34 @@ exports.scrapeGameChanger = functions
               gcToken = data.gcToken;
               console.log(`Loaded GC-Token JWT (${gcToken.length} chars)`);
             }
+            if (data.edenAuthTokens) {
+              edenAuthTokens = data.edenAuthTokens;
+              console.log(`Loaded eden-auth-tokens (${edenAuthTokens.length} chars)`);
+            }
           }
           if (!gcToken) {
             console.log("No GC-Token found — data may be anonymized");
           }
         } catch (e) {
           console.log("Error loading auth:", e.message);
+        }
+
+        // Check if GC-Token is still valid, refresh if needed
+        if (gcToken) {
+          try {
+            const testRes = await fetch(
+                "https://api.team-manager.gc.com/me/user",
+                {headers: {"GC-Token": gcToken, "Accept": "application/json"}},
+            );
+            if (testRes.ok) {
+              console.log("GC-Token is valid");
+            } else {
+              console.log(`GC-Token expired (${testRes.status}), attempting refresh...`);
+              gcToken = null; // Force refresh below
+            }
+          } catch (e) {
+            console.log("Token validation error:", e.message);
+          }
         }
 
         const limit = Math.min(maxGames || 50, 50);
@@ -382,6 +419,22 @@ exports.scrapeGameChanger = functions
           console.log("Starting scrape for:", teamUrl);
           browser = await launchBrowser();
           console.log("Browser launched successfully");
+
+          // If token is expired, try to refresh via Puppeteer
+          if (!gcToken && edenAuthTokens) {
+            console.log("Attempting token refresh via Puppeteer...");
+            gcToken = await refreshGcToken(
+                browser, gcCookies, edenAuthTokens,
+            );
+            if (gcToken) {
+              // Save the refreshed token to Firestore
+              await db.doc("gc_config/cookies").update({
+                gcToken,
+                savedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              console.log("Refreshed and saved new GC-Token");
+            }
+          }
 
           const result = await scrapeTeam(
               browser, teamUrl, limit, gcCookies, gcToken,
@@ -399,6 +452,87 @@ exports.scrapeGameChanger = functions
     });
 
 /**
+ * Refresh the GC-Token JWT by loading gc.com with saved auth tokens.
+ * The eden SDK in gc.com decrypts the saved tokens and generates a fresh JWT.
+ */
+async function refreshGcToken(browser, gcCookies, edenAuthTokens) {
+  let freshToken = "";
+  const page = await browser.newPage();
+  try {
+    await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/120.0.0.0 Safari/537.36",
+    );
+
+    // Set up CDP network interception to capture GC-Token
+    const client = await page.createCDPSession();
+    client.on("Network.requestWillBeSent", (params) => {
+      const tok = (params.request.headers || {})["GC-Token"] ||
+          (params.request.headers || {})["gc-token"] || "";
+      if (tok && tok.length > 100 && !freshToken) {
+        freshToken = tok;
+      }
+    });
+    await client.send("Network.enable");
+
+    // Inject cookies
+    if (gcCookies && gcCookies.length > 0) {
+      await page.setCookie(...gcCookies);
+    }
+
+    // Navigate to gc.com to set localStorage
+    await page.goto("https://web.gc.com/favicon.ico", {timeout: 10000});
+    await delay(500);
+
+    // Inject eden-auth-tokens into localStorage
+    await page.evaluate((tokens) => {
+      localStorage.setItem("eden-auth-tokens", tokens);
+    }, edenAuthTokens);
+
+    // Navigate to gc.com — the eden SDK will decrypt tokens and make API calls
+    await page.goto("https://web.gc.com/", {
+      waitUntil: "domcontentloaded", timeout: 20000,
+    });
+    await delay(5000);
+
+    if (freshToken) {
+      // Validate the captured token
+      const testRes = await fetch(
+          "https://api.team-manager.gc.com/me/user",
+          {headers: {"GC-Token": freshToken, "Accept": "application/json"}},
+      );
+      if (testRes.ok) {
+        console.log(`Token refresh successful (${freshToken.length} chars)`);
+
+        // Also save updated eden-auth-tokens (SDK may have refreshed them)
+        const updatedTokens = await page.evaluate(() => {
+          return localStorage.getItem("eden-auth-tokens");
+        });
+        if (updatedTokens && updatedTokens !== edenAuthTokens) {
+          await db.doc("gc_config/cookies").update({
+            edenAuthTokens: updatedTokens,
+          });
+          console.log("Updated eden-auth-tokens in Firestore");
+        }
+      } else {
+        console.log(`Refreshed token invalid (${testRes.status})`);
+        freshToken = "";
+      }
+    } else {
+      console.log("No GC-Token captured during refresh attempt");
+    }
+
+    await client.detach();
+  } catch (e) {
+    console.log("Token refresh error:", e.message);
+  } finally {
+    await page.close();
+  }
+  return freshToken || null;
+}
+
+/**
  * Scrape the team schedule to find all game links, then scrape each game.
  */
 async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
@@ -413,22 +547,6 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
   if (gcCookies && gcCookies.length > 0) {
     console.log(`Injecting ${gcCookies.length} GC cookies for schedule`);
     await page.setCookie(...gcCookies);
-  }
-
-  // Intercept network requests to capture a fresh GC-Token JWT
-  let capturedToken = "";
-  try {
-    const client = await page.createCDPSession();
-    client.on("Network.requestWillBeSent", (params) => {
-      const tok = (params.request.headers || {})["GC-Token"] ||
-          (params.request.headers || {})["gc-token"] || "";
-      if (tok && tok.length > 100 && !capturedToken) {
-        capturedToken = tok;
-      }
-    });
-    await client.send("Network.enable");
-  } catch (e) {
-    console.log("CDP network interception warning:", e.message);
   }
 
   // Build schedule URL
@@ -598,36 +716,6 @@ async function scrapeTeam(browser, teamUrl, maxGames, gcCookies, gcToken) {
   }
 
   await page.close();
-
-  // Use a captured fresh token if available (from network interception)
-  if (capturedToken) {
-    console.log("Captured fresh GC-Token from schedule page network requests");
-    gcToken = capturedToken;
-    // Save the fresh token to Firestore for future use
-    try {
-      await db.doc("gc_config/cookies").update({
-        gcToken: capturedToken,
-        savedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      console.log("Saved fresh GC-Token to Firestore");
-    } catch (e) {
-      console.log("Error saving fresh token:", e.message);
-    }
-  }
-
-  // Validate token before making API calls
-  if (gcToken) {
-    const testRes = await fetch(
-        "https://api.team-manager.gc.com/me/user",
-        {headers: {"GC-Token": gcToken, "Accept": "application/json"}},
-    );
-    if (!testRes.ok) {
-      console.log(`GC-Token validation failed (${testRes.status}) — ` +
-          "data may have anonymized player names");
-    } else {
-      console.log("GC-Token validated successfully");
-    }
-  }
 
   // Extract team ID from URL for API calls
   const teamIdMatch = teamUrl.match(/\/teams\/([^/]+)/);

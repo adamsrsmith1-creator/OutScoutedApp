@@ -1765,13 +1765,16 @@
       if (cookieDoc.exists()) {
         const data = cookieDoc.data();
         const hasToken = !!(data.gcToken);
+        const hasEden = !!(data.edenAuthTokens);
         const savedAt = data.savedAt;
         let timeStr = 'unknown time';
         if (savedAt && savedAt.toDate) {
           timeStr = savedAt.toDate().toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'});
         }
-        if (hasToken) {
-          statusEl.innerHTML = '<span style="color:#4ade80;">✓ Authenticated</span> — API token saved ' + timeStr;
+        if (hasToken && hasEden) {
+          statusEl.innerHTML = '<span style="color:#4ade80;">✓ Authenticated</span> — token saved ' + timeStr + ' (auto-refresh enabled)';
+        } else if (hasToken) {
+          statusEl.innerHTML = '<span style="color:#4ade80;">✓ Authenticated</span> — token saved ' + timeStr;
         } else if (data.cookies) {
           statusEl.innerHTML = '<span style="color:#fbbf24;">Cookies only</span> — saved ' + timeStr + ' (API token needed for player names)';
         }
